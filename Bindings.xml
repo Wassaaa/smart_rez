@@ -1,5 +1,6 @@
 <Bindings>
 	<Binding name="CLICK SmartRez:LeftButton" category="SmartRez"/>
+	<Binding name="CLICK LowModeToggleBtn:LeftButton" category="SmartRez"/>
 	<Binding name="CLICK greenDe:LeftButton" category="SmartRez"/>
 	<Binding name="CLICK TSMDestroyBtn:LeftButton" category="SmartRez"/>
 </Bindings>
