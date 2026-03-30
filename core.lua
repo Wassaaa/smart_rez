@@ -8,6 +8,24 @@ _G.SmartRez.craftRecipeActions = {}
 _G.SmartRez.craftRecipeCache = {}
 _G.SmartRez.craftRecipeCacheDirty = true
 _G.SmartRez.knownProfessions = {}
+_G.SmartRez.goldPrinterMinFreeSlots = 4
+_G.SmartRez.configDefaults = {
+	goldPrinter = {
+		minFreeSlots = 4,
+	},
+	disenchantWhitelist = {},
+	recipeCrafts = {
+		shardcraft = {
+			label = "Shard Craft",
+			recipeID = nil,
+			requiredProfession = nil,
+			openTradeSkillID = nil,
+			useDefaultReagents = true,
+			debug = false,
+			reagents = {},
+		},
+	},
+}
 
 _G.SmartRez.Profession = {
 	Alchemy = 171,
@@ -27,6 +45,264 @@ _G.SmartRez.Profession = {
 
 function _G.SmartRez:RegisterBindableAction(action)
 	self.bindableActions[action.key] = action
+end
+
+local function resolveActionValue(action, key)
+	local value = action[key]
+	if type(value) == "function" then
+		return value(action)
+	end
+	return value
+end
+
+local function copyTable(source)
+	local copied = {}
+	for key, value in pairs(source or {}) do
+		if type(value) == "table" then
+			copied[key] = copyTable(value)
+		else
+			copied[key] = value
+		end
+	end
+	return copied
+end
+
+local function mergeDefaults(target, defaults)
+	for key, value in pairs(defaults or {}) do
+		if type(value) == "table" then
+			if type(target[key]) ~= "table" then
+				target[key] = {}
+			end
+			mergeDefaults(target[key], value)
+		elseif target[key] == nil then
+			target[key] = value
+		end
+	end
+end
+
+function _G.SmartRez:EnsureConfig()
+	SmartRezDB = SmartRezDB or {}
+	SmartRezDB.config = SmartRezDB.config or {}
+	mergeDefaults(SmartRezDB.config, self.configDefaults)
+end
+
+function _G.SmartRez:GetDisenchantWhitelist()
+	self:EnsureConfig()
+	return SmartRezDB.config.disenchantWhitelist
+end
+
+function _G.SmartRez:GetGoldPrinterMinFreeSlots()
+	self:EnsureConfig()
+	return SmartRezDB.config.goldPrinter.minFreeSlots or self.goldPrinterMinFreeSlots
+end
+
+function _G.SmartRez:SetGoldPrinterMinFreeSlots(value)
+	self:EnsureConfig()
+	SmartRezDB.config.goldPrinter.minFreeSlots = value or self.goldPrinterMinFreeSlots
+	if self.RefreshViews then
+		self:RefreshViews()
+	end
+end
+
+function _G.SmartRez:SetDisenchantWhitelist(whitelist)
+	self:EnsureConfig()
+	SmartRezDB.config.disenchantWhitelist = whitelist or {}
+end
+
+function _G.SmartRez:GetRecipeCraftConfig(configKey)
+	self:EnsureConfig()
+	if type(SmartRezDB.config.recipeCrafts[configKey]) ~= "table" then
+		local defaultConfig = self.configDefaults.recipeCrafts[configKey] or {}
+		SmartRezDB.config.recipeCrafts[configKey] = copyTable(defaultConfig)
+	end
+
+	local recipeConfig = SmartRezDB.config.recipeCrafts[configKey]
+	local defaultConfig = self.configDefaults.recipeCrafts[configKey]
+	if defaultConfig then
+		mergeDefaults(recipeConfig, defaultConfig)
+	end
+
+	return recipeConfig
+end
+
+function _G.SmartRez:SetRecipeCraftConfig(configKey, recipeConfig)
+	self:EnsureConfig()
+	SmartRezDB.config.recipeCrafts[configKey] = recipeConfig or {}
+end
+
+function _G.SmartRez:GetVisibleSchematicForm()
+	local professionsFrame = _G["ProfessionsFrame"]
+	if professionsFrame and professionsFrame.CraftingPage and professionsFrame.CraftingPage.SchematicForm and professionsFrame.CraftingPage.SchematicForm:IsVisible() then
+		return professionsFrame.CraftingPage.SchematicForm
+	end
+
+	local ordersPage = professionsFrame and professionsFrame.OrdersPage and professionsFrame.OrdersPage.OrderView
+	if ordersPage and ordersPage.OrderDetails and ordersPage.OrderDetails.SchematicForm and ordersPage.OrderDetails.SchematicForm:IsVisible() then
+		return ordersPage.OrderDetails.SchematicForm
+	end
+end
+
+local function buildCraftingReagentsFromConfig(reagents)
+	local craftingReagents = {}
+
+	for index, reagent in ipairs(reagents or {}) do
+		if reagent.itemID or reagent.currencyID then
+			craftingReagents[#craftingReagents + 1] = {
+				reagent = {
+					itemID = reagent.itemID,
+					currencyID = reagent.currencyID,
+				},
+				dataSlotIndex = reagent.dataSlotIndex or index,
+				quantity = reagent.quantity,
+			}
+		end
+	end
+
+	if #craftingReagents == 0 then
+		return nil
+	end
+
+	return craftingReagents
+end
+
+function _G.SmartRez:UpdateCurrentProfessionState()
+	local schematicForm = self:GetVisibleSchematicForm()
+	if not schematicForm or not schematicForm.GetRecipeInfo then
+		self.currentProfessionState = nil
+		return nil
+	end
+
+	local recipeInfo = schematicForm:GetRecipeInfo()
+	local professionInfo = _G["C_TradeSkillUI"]["GetBaseProfessionInfo"] and _G["C_TradeSkillUI"]["GetBaseProfessionInfo"]()
+
+	if not recipeInfo or not recipeInfo.recipeID or not professionInfo or not professionInfo.professionID then
+		self.currentProfessionState = nil
+		return nil
+	end
+
+	local recipeSchematic = schematicForm.recipeSchematic or _G["C_TradeSkillUI"]["GetRecipeSchematic"](recipeInfo.recipeID, false)
+	local currentTransaction = schematicForm.GetTransaction and schematicForm:GetTransaction() or nil
+	local reagents = {}
+
+	for slotIndex, reagentSlot in ipairs(recipeSchematic and recipeSchematic.reagentSlotSchematics or {}) do
+		if reagentSlot.quantityRequired and reagentSlot.quantityRequired > 0 and (reagentSlot.required ~= false) then
+			local selectedItemID = reagentSlot.reagents and reagentSlot.reagents[1] and reagentSlot.reagents[1].itemID or nil
+			local slotAllocations = currentTransaction and currentTransaction.GetAllocations and currentTransaction:GetAllocations(slotIndex) or nil
+
+			if slotAllocations and slotAllocations.FindAllocationByReagent then
+				for _, reagent in ipairs(reagentSlot.reagents or {}) do
+					local allocation = slotAllocations:FindAllocationByReagent(reagent)
+					if allocation and allocation.GetQuantity and allocation:GetQuantity() > 0 then
+						selectedItemID = reagent.itemID
+						break
+					end
+				end
+			end
+
+			reagents[#reagents + 1] = {
+				itemID = selectedItemID,
+				quantity = reagentSlot.quantityRequired,
+				dataSlotIndex = reagentSlot.dataSlotIndex or slotIndex,
+				slotIndex = slotIndex,
+			}
+		end
+	end
+
+	local outputInfo = _G["C_TradeSkillUI"]["GetRecipeOutputItemData"] and _G["C_TradeSkillUI"]["GetRecipeOutputItemData"](
+		recipeInfo.recipeID,
+		buildCraftingReagentsFromConfig(reagents)
+	)
+
+	self.currentProfessionState = {
+		label = recipeSchematic and recipeSchematic.name or recipeInfo.name,
+		recipeID = recipeInfo.recipeID,
+		requiredProfession = professionInfo.professionID,
+		openTradeSkillID = professionInfo.professionID,
+		reagents = reagents,
+		outputItemLink = outputInfo and outputInfo.hyperlink or recipeInfo.hyperlink,
+		outputItemID = outputInfo and outputInfo.itemID or nil,
+		outputIcon = outputInfo and outputInfo.icon or recipeInfo.icon,
+	}
+
+	return self.currentProfessionState
+end
+
+function _G.SmartRez:WatchProfessionFrame()
+	if self.professionFrameWatched then
+		return
+	end
+
+	local hookFrame = _G["ProfessionsFrame"] and _G["ProfessionsFrame"]["CraftingPage"] and _G["ProfessionsFrame"]["CraftingPage"]["SchematicForm"]
+	if not hookFrame then
+		return
+	end
+
+	local function updateState()
+		self:UpdateCurrentProfessionState()
+		if self.RefreshViews then
+			self:RefreshViews()
+		end
+	end
+
+	hooksecurefunc(hookFrame, "Init", updateState)
+
+	if hookFrame.RegisterCallback and _G["ProfessionsRecipeSchematicFormMixin"] and _G["ProfessionsRecipeSchematicFormMixin"]["Event"] then
+		hookFrame:RegisterCallback(_G["ProfessionsRecipeSchematicFormMixin"]["Event"]["AllocationsModified"], updateState)
+		hookFrame:RegisterCallback(_G["ProfessionsRecipeSchematicFormMixin"]["Event"]["UseBestQualityModified"], updateState)
+	end
+
+	self.professionFrameWatched = true
+	self:UpdateCurrentProfessionState()
+end
+
+function _G.SmartRez:AddDisenchantWhitelistItem(itemID)
+	if not itemID then
+		return
+	end
+
+	local whitelist = self:GetDisenchantWhitelist()
+	whitelist[itemID] = true
+	self:RefreshViews()
+end
+
+function _G.SmartRez:RemoveDisenchantWhitelistItem(itemID)
+	local whitelist = self:GetDisenchantWhitelist()
+	whitelist[itemID] = nil
+	self:RefreshViews()
+end
+
+function _G.SmartRez:LoadRecipeCraftFromSelection(configKey)
+	if not (_G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["GetRecipeSchematic"]) then
+		return false, "Recipe UI APIs are unavailable."
+	end
+
+	local currentState = self:UpdateCurrentProfessionState()
+	if not currentState or not currentState.recipeID then
+		local recipeConfig = self:GetRecipeCraftConfig(configKey)
+		if recipeConfig.openTradeSkillID and _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["OpenTradeSkill"] then
+			_G["C_TradeSkillUI"]["OpenTradeSkill"](recipeConfig.openTradeSkillID)
+			return false, "Opened the profession window. Select a recipe, then click again."
+		end
+		return false, "Select a recipe in the profession window first."
+	end
+
+	self:SetRecipeCraftConfig(configKey, {
+		label = currentState.label,
+		recipeID = currentState.recipeID,
+		requiredProfession = currentState.requiredProfession,
+		openTradeSkillID = currentState.openTradeSkillID,
+		useDefaultReagents = true,
+		debug = false,
+		reagents = copyTable(currentState.reagents or {}),
+		outputItemLink = currentState.outputItemLink,
+		outputItemID = currentState.outputItemID,
+		outputIcon = currentState.outputIcon,
+	})
+
+	self:MarkCraftRecipeCacheDirty()
+	self:RefreshViews()
+
+	return true
 end
 
 function _G.SmartRez:RefreshKnownProfessions()
@@ -63,8 +339,15 @@ end
 function _G.SmartRez:GetBindableActions()
 	local actions = {}
 	for _, action in pairs(self.bindableActions) do
-		if not action.requiredProfession or self:HasProfession(action.requiredProfession) then
-			table.insert(actions, action)
+		local requiredProfession = resolveActionValue(action, "requiredProfession")
+		if not requiredProfession or self:HasProfession(requiredProfession) then
+			table.insert(actions, {
+				key = action.key,
+				label = resolveActionValue(action, "label"),
+				buttonName = action.buttonName,
+				order = action.order,
+				requiredProfession = requiredProfession,
+			})
 		end
 	end
 	table.sort(actions, function(left, right)
@@ -79,6 +362,20 @@ end
 
 function _G.SmartRez:MarkCraftRecipeCacheDirty()
 	self.craftRecipeCacheDirty = true
+end
+
+function _G.SmartRez:GetFreeBagSlots()
+	local freeSlots = 0
+
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, _G["C_Container"]["GetContainerNumSlots"](bag) do
+			if not _G["C_Container"]["GetContainerItemInfo"](bag, slot) then
+				freeSlots = freeSlots + 1
+			end
+		end
+	end
+
+	return freeSlots
 end
 
 function _G.SmartRez:HandleInventoryChanged()
@@ -108,8 +405,10 @@ function _G.SmartRez:OnEnable()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleInventoryChanged")
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleProfessionsChanged")
 	self:RegisterEvent("SKILL_LINES_CHANGED", "HandleProfessionsChanged")
+	self:RegisterEvent("TRADE_SKILL_SHOW", "WatchProfessionFrame")
 	self:HandleProfessionsChanged()
 	self:HandleInventoryChanged()
+	self:WatchProfessionFrame()
 end
 
 _G["BINDING_HEADER_SMARTREZ"] = "Smart Rez"

@@ -11,8 +11,16 @@ local _UnitCastingInfo = _G["UnitCastingInfo"]
 local _floor = math.floor
 local _min = math.min
 
+local function resolveConfigValue(config, key)
+	local value = config[key]
+	if type(value) == "function" then
+		return value(config)
+	end
+	return value
+end
+
 local function debugPrint(config, ...)
-	if not config.debug then
+	if not resolveConfigValue(config, "debug") then
 		return
 	end
 
@@ -54,7 +62,7 @@ local function getAvailableReagentCount(reagent)
 		if _C_Item_GetItemCount then
 			return _C_Item_GetItemCount(reagent.itemID, false, false, false, false)
 		end
-		return _G["GetItemCount"](reagent.itemID)
+		return 0
 	end
 
 	if reagent.currencyID then
@@ -83,12 +91,18 @@ function SmartRez:RebuildCraftRecipeCache()
 	local cache = {}
 
 	for key, config in pairs(self.craftRecipeActions) do
-		if not config.requiredProfession or self:HasProfession(config.requiredProfession) then
-			local maxCrafts = config.getMaxCasts and config.getMaxCasts(config) or getMaxCraftsFromReagents(config.reagents)
-			local numCasts = config.numCasts and config.numCasts(maxCrafts, config) or maxCrafts
+		local requiredProfession = resolveConfigValue(config, "requiredProfession")
+		local reagents = resolveConfigValue(config, "reagents")
+		local useDefaultReagents = resolveConfigValue(config, "useDefaultReagents")
+
+		if not requiredProfession or self:HasProfession(requiredProfession) then
+			local maxCrafts = config.getMaxCasts and config.getMaxCasts(config) or getMaxCraftsFromReagents(reagents)
+			local numCasts = maxCrafts > 0 and 1 or 0
+			local maxAllowedCasts = resolveConfigValue(config, "maxCasts")
+			local minRequiredCasts = resolveConfigValue(config, "minCasts") or 1
 
 			debugPrint(config, "cache rebuild", "max", maxCrafts, "casts", numCasts)
-			for index, reagent in ipairs(config.reagents or {}) do
+			for index, reagent in ipairs(reagents or {}) do
 				debugPrint(
 					config,
 					"reagent count",
@@ -100,14 +114,14 @@ function SmartRez:RebuildCraftRecipeCache()
 				)
 			end
 
-			if config.maxCasts then
-				numCasts = _min(numCasts, config.maxCasts)
+			if maxAllowedCasts then
+				numCasts = _min(numCasts, maxAllowedCasts)
 			end
 
-			if numCasts >= (config.minCasts or 1) then
+			if numCasts >= minRequiredCasts then
 				local craftingReagents
-				if not config.useDefaultReagents then
-					craftingReagents = config.buildCraftingReagents and config.buildCraftingReagents(numCasts, config) or buildCraftingReagents(config.reagents, numCasts)
+				if not useDefaultReagents then
+					craftingReagents = config.buildCraftingReagents and config.buildCraftingReagents(numCasts, config) or buildCraftingReagents(reagents, numCasts)
 				end
 				cache[key] = {
 					numCasts = numCasts,
@@ -153,23 +167,31 @@ function SmartRez:RegisterCraftRecipeAction(config)
 			return
 		end
 
-		if config.openTradeSkillID then
+		local recipeID = resolveConfigValue(config, "recipeID")
+		local openTradeSkillID = resolveConfigValue(config, "openTradeSkillID")
+		local recipeLevel = resolveConfigValue(config, "recipeLevel")
+		local orderID = resolveConfigValue(config, "orderID")
+		local applyConcentration = resolveConfigValue(config, "applyConcentration")
+		local requiredProfession = resolveConfigValue(config, "requiredProfession")
+		local useDefaultReagents = resolveConfigValue(config, "useDefaultReagents")
+
+		if openTradeSkillID then
 			local professionInfo = _C_GetBaseProfessionInfo and _C_GetBaseProfessionInfo()
-			if not professionInfo or professionInfo.professionID ~= config.openTradeSkillID then
-				debugPrint(config, "opening profession", config.openTradeSkillID, "current", professionInfo and professionInfo.professionID or "nil")
-				_C_OpenTradeSkill(config.openTradeSkillID)
+			if not professionInfo or professionInfo.professionID ~= openTradeSkillID then
+				debugPrint(config, "opening profession", openTradeSkillID, "current", professionInfo and professionInfo.professionID or "nil")
+				_C_OpenTradeSkill(openTradeSkillID)
 				return
 			end
 			debugPrint(config, "profession ready", professionInfo.professionID)
 		end
 
 		if _C_OpenRecipe then
-			debugPrint(config, "opening recipe", config.recipeID)
-			_C_OpenRecipe(config.recipeID)
+			debugPrint(config, "opening recipe", recipeID)
+			_C_OpenRecipe(recipeID)
 		end
 
 		if _C_GetRecipeInfo then
-			local recipeInfo = _C_GetRecipeInfo(config.recipeID)
+			local recipeInfo = _C_GetRecipeInfo(recipeID)
 			debugPrint(
 				config,
 				"recipe info",
@@ -185,12 +207,12 @@ function SmartRez:RegisterCraftRecipeAction(config)
 
 		local target = SmartRez:GetCraftRecipeTarget(config.key)
 		if not target then
-			debugPrint(config, "no craft target", "profession", config.requiredProfession and tostring(SmartRez:HasProfession(config.requiredProfession)) or "none")
+			debugPrint(config, "no craft target", "profession", requiredProfession and tostring(SmartRez:HasProfession(requiredProfession)) or "none")
 			actionFrame:UnregisterAllEvents()
 			return
 		end
 
-		debugPrint(config, "craft target", "casts", target.numCasts, "available", target.availableCasts, "defaultReagents", tostring(config.useDefaultReagents))
+		debugPrint(config, "craft target", "casts", target.numCasts, "available", target.availableCasts, "defaultReagents", tostring(useDefaultReagents))
 
 		if target.craftingReagents then
 			for index, reagent in ipairs(target.craftingReagents) do
@@ -214,12 +236,12 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		end
 
 		local result = _C_CraftRecipe(
-			config.recipeID,
+			recipeID,
 			target.numCasts,
 			target.craftingReagents,
-			config.recipeLevel,
-			config.orderID,
-			config.applyConcentration
+			recipeLevel,
+			orderID,
+			applyConcentration
 		)
 		debugPrint(config, "craft call result", tostring(result))
 		SmartRez:MarkCraftRecipeCacheDirty()

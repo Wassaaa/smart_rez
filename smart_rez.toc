@@ -12,6 +12,7 @@ overrideBindings.lua
 craftSalvageCore.lua
 craftRecipeCore.lua
 disenchant.lua
+goldPrinter.lua
 cooking.lua
 prospecting.lua
 thaumaturgy.lua

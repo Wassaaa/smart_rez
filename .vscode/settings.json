@@ -81,6 +81,7 @@
     "ChatEdit_InsertLink",
     "ChatFrameUtil",
     "OKAY",
-    "hash_SlashCmdList"
+    "hash_SlashCmdList",
+    "LootFrame"
   ]
 }
