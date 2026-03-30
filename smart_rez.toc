@@ -5,9 +5,17 @@
 ## SavedVariables: QuantityMemory
 ## SavedVariables: BaitMemory
 ## SavedVariables: SmartRezLowModeDB
+## SavedVariables: SmartRezDB
+embeds.xml
 core.lua
-lowmode.lua
-thauma.lua
-greenDe.lua
+overrideBindings.lua
+craftSalvageCore.lua
+craftRecipeCore.lua
+disenchant.lua
+cooking.lua
+prospecting.lua
+thaumaturgy.lua
+shattering.lua
+recipeCrafts.lua
 snipeAuctionator.lua
 belledar.lua
