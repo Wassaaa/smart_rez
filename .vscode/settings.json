@@ -82,6 +82,7 @@
     "ChatFrameUtil",
     "OKAY",
     "hash_SlashCmdList",
-    "LootFrame"
+    "LootFrame",
+    "NUM_BAG_SLOTS"
   ]
 }

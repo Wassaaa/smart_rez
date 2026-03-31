@@ -367,10 +367,17 @@ end
 function _G.SmartRez:GetFreeBagSlots()
 	local freeSlots = 0
 
-	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, _G["C_Container"]["GetContainerNumSlots"](bag) do
-			if not _G["C_Container"]["GetContainerItemInfo"](bag, slot) then
-				freeSlots = freeSlots + 1
+	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+		if _G["C_Container"]["GetContainerNumFreeSlots"] then
+			local bagFreeSlots, bagFamily = _G["C_Container"]["GetContainerNumFreeSlots"](bag)
+			if bagFamily == 0 then
+				freeSlots = freeSlots + (bagFreeSlots or 0)
+			end
+		else
+			for slot = 1, _G["C_Container"]["GetContainerNumSlots"](bag) do
+				if not _G["C_Container"]["GetContainerItemInfo"](bag, slot) then
+					freeSlots = freeSlots + 1
+				end
 			end
 		end
 	end
