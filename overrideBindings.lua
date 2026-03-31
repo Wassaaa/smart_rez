@@ -235,13 +235,19 @@ local function createOptionsPopup()
 	end)
 	stateGroup:AddChild(optionsFrame.enableCheck)
 
+	local statusGroup = AceGUI:Create("InlineGroup")
+	statusGroup:SetTitle("Status")
+	statusGroup:SetFullWidth(true)
+	statusGroup:SetLayout("List")
+	stateGroup:AddChild(statusGroup)
+
 	optionsFrame.status = AceGUI:Create("Label")
 	optionsFrame.status:SetFullWidth(true)
-	stateGroup:AddChild(optionsFrame.status)
+	statusGroup:AddChild(optionsFrame.status)
 
 	optionsFrame.goldPrinterStatus = AceGUI:Create("Label")
 	optionsFrame.goldPrinterStatus:SetFullWidth(true)
-	stateGroup:AddChild(optionsFrame.goldPrinterStatus)
+	statusGroup:AddChild(optionsFrame.goldPrinterStatus)
 
 	local bindsGroup = AceGUI:Create("InlineGroup")
 	bindsGroup:SetTitle("Current Binds")
