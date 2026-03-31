@@ -712,12 +712,22 @@ function SmartRez:OnInitialize()
 end
 
 function SmartRez:ChatCommand(msg)
-	local command = trim(msg):lower()
+	local raw = trim(msg)
+	local command = raw:lower()
+	local tsmsRestriction, tsmsLabel = raw:match("^tsms%s+(%S+)%s+(.+)$")
+	local tsmMailLabel = raw:match("^tsm%s+mail%s+(.+)$")
+	local tsmLabel = raw:match("^tsm%s+(.+)$")
 
 	if command == "" or command == "config" then
 		openSettingsCategory()
 	elseif command == "setup" or command == "items" then
 		showAutomationConfigWindow()
+	elseif tsmsRestriction and tsmsLabel then
+		self:ClickVisibleTSMButton(tsmsLabel, tsmsRestriction)
+	elseif tsmMailLabel then
+		self:ClickVisibleTSMButton(tsmMailLabel, "mail")
+	elseif tsmLabel then
+		self:ClickVisibleTSMButton(tsmLabel)
 	elseif command == "on" then
 		self:SetEnabled(true)
 	elseif command == "off" then
@@ -727,6 +737,6 @@ function SmartRez:ChatCommand(msg)
 	elseif command == "pop" then
 		toggleOptionsPopup()
 	else
-		print("Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup")
+		print("Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
 	end
 end

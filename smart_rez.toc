@@ -21,4 +21,4 @@ shattering.lua
 recipeCrafts.lua
 snipeAuctionator.lua
 belledar.lua
-tsmMailing.lua
+tsmLabelClick.lua
