@@ -9,9 +9,13 @@ _G.SmartRez.craftRecipeCache = {}
 _G.SmartRez.craftRecipeCacheDirty = true
 _G.SmartRez.knownProfessions = {}
 _G.SmartRez.goldPrinterMinFreeSlots = 4
+_G.SmartRez.tsmLabelClickCooldown = 0.25
 _G.SmartRez.configDefaults = {
 	goldPrinter = {
 		minFreeSlots = 4,
+	},
+	tsmLabelClick = {
+		cooldown = 0.25,
 	},
 	disenchantWhitelist = {},
 	recipeCrafts = {
@@ -99,6 +103,29 @@ end
 function _G.SmartRez:SetGoldPrinterMinFreeSlots(value)
 	self:EnsureConfig()
 	SmartRezDB.config.goldPrinter.minFreeSlots = value or self.goldPrinterMinFreeSlots
+	if self.RefreshViews then
+		self:RefreshViews()
+	end
+end
+
+function _G.SmartRez:GetTSMLabelClickCooldown()
+	self:EnsureConfig()
+	local cooldown = SmartRezDB.config.tsmLabelClick.cooldown
+	if type(cooldown) ~= "number" then
+		return self.tsmLabelClickCooldown
+	end
+	return cooldown
+end
+
+function _G.SmartRez:SetTSMLabelClickCooldown(value)
+	self:EnsureConfig()
+	value = tonumber(value) or self.tsmLabelClickCooldown
+	if value < 0 then
+		value = 0
+	elseif value > 1 then
+		value = 1
+	end
+	SmartRezDB.config.tsmLabelClick.cooldown = value
 	if self.RefreshViews then
 		self:RefreshViews()
 	end

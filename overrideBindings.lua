@@ -42,6 +42,10 @@ local function getGoldPrinterStatusText()
 	return colorize("C0CAF5", SmartRez:GetGoldPrinterPhaseLabel())
 end
 
+local function getTSMLabelClickCooldownText()
+	return colorize("79C0FF", string.format("%.2fs", SmartRez:GetTSMLabelClickCooldown()))
+end
+
 local function getActions()
 	return SmartRez:GetBindableActions()
 end
@@ -249,6 +253,10 @@ local function createOptionsPopup()
 	optionsFrame.goldPrinterStatus:SetFullWidth(true)
 	statusGroup:AddChild(optionsFrame.goldPrinterStatus)
 
+	optionsFrame.tsmLabelClickCooldown = AceGUI:Create("Label")
+	optionsFrame.tsmLabelClickCooldown:SetFullWidth(true)
+	statusGroup:AddChild(optionsFrame.tsmLabelClickCooldown)
+
 	local bindsGroup = AceGUI:Create("InlineGroup")
 	bindsGroup:SetTitle("Current Binds")
 	bindsGroup:SetFullWidth(true)
@@ -313,6 +321,7 @@ local function createOptionsPopup()
 		self.enableCheck:SetValue(SmartRezDB.enabled)
 		self.status:SetText("Status: " .. getModeStatusText())
 		self.goldPrinterStatus:SetText("Gold Printer: " .. getGoldPrinterStatusText())
+		self.tsmLabelClickCooldown:SetText("TSM Label Click Cooldown: " .. getTSMLabelClickCooldownText())
 
 		for _, action in ipairs(getActions()) do
 			self.values[action.key]:SetText(getBindingDisplay(action.key))
@@ -623,6 +632,36 @@ local function buildAceOptions()
 				},
 			},
 		},
+		tsmlabelclick = {
+			type = "group",
+			name = "TSM Label Click",
+			inline = true,
+			order = 15,
+			args = {
+				help = {
+					type = "description",
+					name = "Controls the shared cooldown for /sr tsm and /sr tsms label clicks.",
+					order = 10,
+					fontSize = "medium",
+				},
+				cooldown = {
+					type = "range",
+					name = "TSM label click cooldown",
+					desc = "Shared cooldown for /sr tsm and /sr tsms button clicks.",
+					order = 20,
+					min = 0,
+					max = 1,
+					step = 0.05,
+					isPercent = false,
+					set = function(_, value)
+						SmartRez:SetTSMLabelClickCooldown(value)
+					end,
+					get = function()
+						return SmartRez:GetTSMLabelClickCooldown()
+					end,
+				},
+			},
+		},
 		utility = {
 			type = "group",
 			name = "Utility",
@@ -647,7 +686,7 @@ local function buildAceOptions()
 				},
 				slashhint = {
 					type = "description",
-					name = "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup",
+					name = "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
 					order = 25,
 					fontSize = "medium",
 				},

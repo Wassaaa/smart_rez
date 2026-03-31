@@ -26,6 +26,14 @@ local RESTRICTIONS = {
 		missingUIMessage = "Smart Rez: open the TSM profession UI before using this macro.",
 	},
 }
+local nextLabelClickTime = 0
+
+local function getNow()
+	if _G.GetTimePreciseSec then
+		return _G.GetTimePreciseSec()
+	end
+	return _G.GetTime()
+end
 
 local function isUIVisible(uiName)
 	if _G.TSM_API and _G.TSM_API.IsUIVisible and uiName then
@@ -132,11 +140,23 @@ local function defaultClickError(config)
 	return "Smart Rez: required TSM UI is not open."
 end
 
+local function isOnLabelClickCooldown()
+	return getNow() < nextLabelClickTime
+end
+
+local function startLabelClickCooldown()
+	nextLabelClickTime = getNow() + (SmartRez.GetTSMLabelClickCooldown and SmartRez:GetTSMLabelClickCooldown() or 0.25)
+end
+
 function SmartRez:ClickVisibleButtonByLabel(config)
 	config = config or {}
 	local labels = normalizeLabels(config.labels)
 	if #labels == 0 then
 		print("Smart Rez: no labels were configured for this proxy button.")
+		return
+	end
+
+	if isOnLabelClickCooldown() then
 		return
 	end
 
@@ -156,6 +176,7 @@ function SmartRez:ClickVisibleButtonByLabel(config)
 		return
 	end
 
+	startLabelClickCooldown()
 	button:Click()
 end
 
