@@ -148,11 +148,19 @@ local function startLabelClickCooldown()
 	nextLabelClickTime = getNow() + (SmartRez.GetTSMLabelClickCooldown and SmartRez:GetTSMLabelClickCooldown() or 0.25)
 end
 
+local function printLabelClickMessage(message)
+	if SmartRez.GetTSMLabelClickShowMacroErrors and not SmartRez:GetTSMLabelClickShowMacroErrors() then
+		return
+	end
+
+	print(message)
+end
+
 function SmartRez:ClickVisibleButtonByLabel(config)
 	config = config or {}
 	local labels = normalizeLabels(config.labels)
 	if #labels == 0 then
-		print("Smart Rez: no labels were configured for this proxy button.")
+		printLabelClickMessage("Smart Rez: no labels were configured for this proxy button.")
 		return
 	end
 
@@ -161,18 +169,18 @@ function SmartRez:ClickVisibleButtonByLabel(config)
 	end
 
 	if config.uiName and not isUIVisible(config.uiName) then
-		print(config.missingUIMessage or defaultClickError(config))
+		printLabelClickMessage(config.missingUIMessage or defaultClickError(config))
 		return
 	end
 
 	if config.requireMail and not isMailVisible() then
-		print(config.missingUIMessage or defaultClickError(config))
+		printLabelClickMessage(config.missingUIMessage or defaultClickError(config))
 		return
 	end
 
 	local button = findVisibleButtonByLabel(labels, config.frameValidator)
 	if not button then
-		print(config.missingButtonMessage or "Smart Rez: could not find a visible TSM button with a matching label.")
+		printLabelClickMessage(config.missingButtonMessage or "Smart Rez: could not find a visible TSM button with a matching label.")
 		return
 	end
 
@@ -188,7 +196,7 @@ end
 function SmartRez:ClickVisibleTSMButton(label, restrictionName)
 	local displayLabel = type(label) == "string" and label:match("^%s*(.-)%s*$") or ""
 	if displayLabel == "" then
-		print("Smart Rez: provide a TSM button label to click.")
+		printLabelClickMessage("Smart Rez: provide a TSM button label to click.")
 		return
 	end
 
@@ -196,7 +204,7 @@ function SmartRez:ClickVisibleTSMButton(label, restrictionName)
 	if restrictionName ~= nil then
 		restriction = self:GetTSMLabelClickRestriction(restrictionName)
 		if not restriction then
-			print("Smart Rez: unknown TSM restriction '" .. tostring(restrictionName) .. "'. Use mail, ah, or prof.")
+			printLabelClickMessage("Smart Rez: unknown TSM restriction '" .. tostring(restrictionName) .. "'. Use mail, ah, or prof.")
 			return
 		end
 	end

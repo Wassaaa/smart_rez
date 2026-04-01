@@ -626,6 +626,18 @@ local function buildAceOptions()
 					order = 10,
 					fontSize = "medium",
 				},
+				showmacroerrors = {
+					type = "toggle",
+					name = "Show macro error messages",
+					desc = "Print chat errors when /sr tsm or /sr tsms can't find the needed TSM UI or button.",
+					order = 15,
+					set = function(_, value)
+						SmartRez:SetTSMLabelClickShowMacroErrors(value)
+					end,
+					get = function()
+						return SmartRez:GetTSMLabelClickShowMacroErrors()
+					end,
+				},
 				cooldown = {
 					type = "range",
 					name = "TSM label click cooldown",

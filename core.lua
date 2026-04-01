@@ -19,6 +19,7 @@ _G.SmartRez.dbDefaults = {
 		},
 		tsmLabelClick = {
 			cooldown = 0.25,
+			showMacroErrors = false,
 		},
 	},
 	char = {
@@ -177,6 +178,19 @@ function _G.SmartRez:SetTSMLabelClickCooldown(value)
 		value = 1
 	end
 	self.db.profile.tsmLabelClick.cooldown = value
+	if self.RefreshViews then
+		self:RefreshViews()
+	end
+end
+
+function _G.SmartRez:GetTSMLabelClickShowMacroErrors()
+	self:EnsureConfig()
+	return self.db.profile.tsmLabelClick.showMacroErrors ~= false
+end
+
+function _G.SmartRez:SetTSMLabelClickShowMacroErrors(value)
+	self:EnsureConfig()
+	self.db.profile.tsmLabelClick.showMacroErrors = value ~= false
 	if self.RefreshViews then
 		self:RefreshViews()
 	end
