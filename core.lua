@@ -10,23 +10,29 @@ _G.SmartRez.craftRecipeCacheDirty = true
 _G.SmartRez.knownProfessions = {}
 _G.SmartRez.goldPrinterMinFreeSlots = 4
 _G.SmartRez.tsmLabelClickCooldown = 0.25
-_G.SmartRez.configDefaults = {
-	goldPrinter = {
-		minFreeSlots = 4,
+_G.SmartRez.dbDefaults = {
+	profile = {
+		enabled = false,
+		bindings = {},
+		goldPrinter = {
+			minFreeSlots = 4,
+		},
+		tsmLabelClick = {
+			cooldown = 0.25,
+		},
 	},
-	tsmLabelClick = {
-		cooldown = 0.25,
-	},
-	disenchantWhitelist = {},
-	recipeCrafts = {
-		shardcraft = {
-			label = "Shard Craft",
-			recipeID = nil,
-			requiredProfession = nil,
-			openTradeSkillID = nil,
-			useDefaultReagents = true,
-			debug = false,
-			reagents = {},
+	char = {
+		disenchantWhitelist = {},
+		recipeCrafts = {
+			shardcraft = {
+				label = "Shard Craft",
+				recipeID = nil,
+				requiredProfession = nil,
+				openTradeSkillID = nil,
+				useDefaultReagents = true,
+				debug = false,
+				reagents = {},
+			},
 		},
 	},
 }
@@ -84,25 +90,70 @@ local function mergeDefaults(target, defaults)
 	end
 end
 
+local function migrateLegacyDBIfNeeded(addon)
+	if type(SmartRezDB) ~= "table" or SmartRezDB.profileKeys or SmartRezDB.__aceDBMigrated then
+		return
+	end
+
+	local legacyDB = SmartRezDB
+	local profile = addon.db.profile
+	local char = addon.db.char
+
+	if legacyDB.enabled ~= nil then
+		profile.enabled = legacyDB.enabled and true or false
+	end
+
+	if type(legacyDB.bindings) == "table" then
+		profile.bindings = copyTable(legacyDB.bindings)
+	end
+
+	if type(legacyDB.config) == "table" then
+		if type(legacyDB.config.goldPrinter) == "table" then
+			profile.goldPrinter = copyTable(legacyDB.config.goldPrinter)
+		end
+
+		if type(legacyDB.config.tsmLabelClick) == "table" then
+			profile.tsmLabelClick = copyTable(legacyDB.config.tsmLabelClick)
+		end
+
+		if type(legacyDB.config.disenchantWhitelist) == "table" then
+			char.disenchantWhitelist = copyTable(legacyDB.config.disenchantWhitelist)
+		end
+
+		if type(legacyDB.config.recipeCrafts) == "table" then
+			char.recipeCrafts = copyTable(legacyDB.config.recipeCrafts)
+		end
+	end
+
+	mergeDefaults(profile, addon.dbDefaults.profile)
+	mergeDefaults(char, addon.dbDefaults.char)
+	SmartRezDB.__aceDBMigrated = true
+end
+
 function _G.SmartRez:EnsureConfig()
-	SmartRezDB = SmartRezDB or {}
-	SmartRezDB.config = SmartRezDB.config or {}
-	mergeDefaults(SmartRezDB.config, self.configDefaults)
+	if not self.db then
+		self.db = LibStub("AceDB-3.0"):New("SmartRezDB", self.dbDefaults, true)
+		migrateLegacyDBIfNeeded(self)
+	end
+
+	mergeDefaults(self.db.profile, self.dbDefaults.profile)
+	mergeDefaults(self.db.char, self.dbDefaults.char)
+	return self.db.char
 end
 
 function _G.SmartRez:GetDisenchantWhitelist()
 	self:EnsureConfig()
-	return SmartRezDB.config.disenchantWhitelist
+	return self.db.char.disenchantWhitelist
 end
 
 function _G.SmartRez:GetGoldPrinterMinFreeSlots()
 	self:EnsureConfig()
-	return SmartRezDB.config.goldPrinter.minFreeSlots or self.goldPrinterMinFreeSlots
+	return self.db.profile.goldPrinter.minFreeSlots or self.goldPrinterMinFreeSlots
 end
 
 function _G.SmartRez:SetGoldPrinterMinFreeSlots(value)
 	self:EnsureConfig()
-	SmartRezDB.config.goldPrinter.minFreeSlots = value or self.goldPrinterMinFreeSlots
+	self.db.profile.goldPrinter.minFreeSlots = value or self.goldPrinterMinFreeSlots
 	if self.RefreshViews then
 		self:RefreshViews()
 	end
@@ -110,7 +161,7 @@ end
 
 function _G.SmartRez:GetTSMLabelClickCooldown()
 	self:EnsureConfig()
-	local cooldown = SmartRezDB.config.tsmLabelClick.cooldown
+	local cooldown = self.db.profile.tsmLabelClick.cooldown
 	if type(cooldown) ~= "number" then
 		return self.tsmLabelClickCooldown
 	end
@@ -125,7 +176,7 @@ function _G.SmartRez:SetTSMLabelClickCooldown(value)
 	elseif value > 1 then
 		value = 1
 	end
-	SmartRezDB.config.tsmLabelClick.cooldown = value
+	self.db.profile.tsmLabelClick.cooldown = value
 	if self.RefreshViews then
 		self:RefreshViews()
 	end
@@ -133,18 +184,18 @@ end
 
 function _G.SmartRez:SetDisenchantWhitelist(whitelist)
 	self:EnsureConfig()
-	SmartRezDB.config.disenchantWhitelist = whitelist or {}
+	self.db.char.disenchantWhitelist = whitelist or {}
 end
 
 function _G.SmartRez:GetRecipeCraftConfig(configKey)
 	self:EnsureConfig()
-	if type(SmartRezDB.config.recipeCrafts[configKey]) ~= "table" then
-		local defaultConfig = self.configDefaults.recipeCrafts[configKey] or {}
-		SmartRezDB.config.recipeCrafts[configKey] = copyTable(defaultConfig)
+	if type(self.db.char.recipeCrafts[configKey]) ~= "table" then
+		local defaultConfig = self.dbDefaults.char.recipeCrafts[configKey] or {}
+		self.db.char.recipeCrafts[configKey] = copyTable(defaultConfig)
 	end
 
-	local recipeConfig = SmartRezDB.config.recipeCrafts[configKey]
-	local defaultConfig = self.configDefaults.recipeCrafts[configKey]
+	local recipeConfig = self.db.char.recipeCrafts[configKey]
+	local defaultConfig = self.dbDefaults.char.recipeCrafts[configKey]
 	if defaultConfig then
 		mergeDefaults(recipeConfig, defaultConfig)
 	end
@@ -154,7 +205,7 @@ end
 
 function _G.SmartRez:SetRecipeCraftConfig(configKey, recipeConfig)
 	self:EnsureConfig()
-	SmartRezDB.config.recipeCrafts[configKey] = recipeConfig or {}
+	self.db.char.recipeCrafts[configKey] = recipeConfig or {}
 end
 
 function _G.SmartRez:GetVisibleSchematicForm()

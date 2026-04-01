@@ -1,5 +1,3 @@
-SmartRezDB = SmartRezDB or {}
-
 local SmartRez = _G.SmartRez
 local APP_NAME = SmartRez.appName
 
@@ -8,13 +6,13 @@ local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
 local AceGUI = LibStub("AceGUI-3.0")
 
-local DEFAULTS = {
-	enabled = false,
-	bindings = {},
-}
-
 local function trim(text)
 	return (text or ""):match("^%s*(.-)%s*$")
+end
+
+local function getProfileDB()
+	SmartRez:EnsureConfig()
+	return SmartRez.db.profile
 end
 
 local function colorize(hexColor, text)
@@ -22,7 +20,7 @@ local function colorize(hexColor, text)
 end
 
 local function getModeStatusText()
-	if SmartRezDB.enabled then
+	if getProfileDB().enabled then
 		return colorize("7EE787", "Enabled")
 	end
 	return colorize("FFB86C", "Disabled")
@@ -51,7 +49,7 @@ local function getActions()
 end
 
 local function getBindingValue(actionKey)
-	return trim(SmartRezDB.bindings and SmartRezDB.bindings[actionKey] or ""):upper()
+	return trim(getProfileDB().bindings[actionKey] or ""):upper()
 end
 
 local function getBindingDisplay(actionKey)
@@ -63,38 +61,21 @@ local function getBindingDisplay(actionKey)
 end
 
 local function initializeDB()
-	if SmartRez.EnsureConfig then
-		SmartRez:EnsureConfig()
+	local profile = getProfileDB()
+
+	if profile.bindings.thaumaturgy == nil and profile.bindings.thauma ~= nil then
+		profile.bindings.thaumaturgy = profile.bindings.thauma
 	end
 
-	if SmartRezDB.enabled == nil then
-		SmartRezDB.enabled = DEFAULTS.enabled
-	end
-
-	if type(SmartRezDB.bindings) ~= "table" then
-		SmartRezDB.bindings = {}
-	end
-
-	if SmartRezDB.bindings.thaumaturgy == nil and SmartRezDB.bindings.thauma ~= nil then
-		SmartRezDB.bindings.thaumaturgy = SmartRezDB.bindings.thauma
-	end
-
-	if SmartRezDB.bindings.shattering == nil and SmartRezDB.bindings.shatter ~= nil then
-		SmartRezDB.bindings.shattering = SmartRezDB.bindings.shatter
-	end
-
-	for key, value in pairs(DEFAULTS.bindings) do
-		if SmartRezDB.bindings[key] == nil then
-			SmartRezDB.bindings[key] = value
-		end
-		SmartRezDB.bindings[key] = trim(SmartRezDB.bindings[key])
+	if profile.bindings.shattering == nil and profile.bindings.shatter ~= nil then
+		profile.bindings.shattering = profile.bindings.shatter
 	end
 
 	for _, action in ipairs(getActions()) do
-		if SmartRezDB.bindings[action.key] == nil then
-			SmartRezDB.bindings[action.key] = ""
+		if profile.bindings[action.key] == nil then
+			profile.bindings[action.key] = ""
 		end
-		SmartRezDB.bindings[action.key] = trim(SmartRezDB.bindings[action.key])
+		profile.bindings[action.key] = trim(profile.bindings[action.key])
 	end
 end
 
@@ -120,7 +101,7 @@ local function applyOverrideBindings()
 
 	ClearOverrideBindings(overrideFrame)
 
-	if not SmartRezDB.enabled then
+	if not getProfileDB().enabled then
 		return true
 	end
 
@@ -149,11 +130,12 @@ function SmartRez:SetEnabled(enabled, silent)
 		return
 	end
 
-	SmartRezDB.enabled = enabled and true or false
+	local profile = getProfileDB()
+	profile.enabled = enabled and true or false
 	applyOverrideBindings()
 
 	if not silent then
-		if SmartRezDB.enabled then
+		if profile.enabled then
 			print("Smart Rez: override keybinds enabled.")
 		else
 			print("Smart Rez: override keybinds disabled.")
@@ -164,7 +146,7 @@ function SmartRez:SetEnabled(enabled, silent)
 end
 
 function SmartRez:ToggleEnabled()
-	self:SetEnabled(not SmartRezDB.enabled)
+	self:SetEnabled(not getProfileDB().enabled)
 end
 
 local function setBindingValue(actionKey, binding)
@@ -174,7 +156,7 @@ local function setBindingValue(actionKey, binding)
 		return
 	end
 
-	SmartRezDB.bindings[actionKey] = trim(binding):upper()
+	getProfileDB().bindings[actionKey] = trim(binding):upper()
 	applyOverrideBindings()
 	refreshViews()
 end
@@ -318,7 +300,7 @@ local function createOptionsPopup()
 	buttonGroup:AddChild(optionsFrame.closeButton)
 
 	function optionsFrame:Refresh()
-		self.enableCheck:SetValue(SmartRezDB.enabled)
+		self.enableCheck:SetValue(getProfileDB().enabled)
 		self.status:SetText("Status: " .. getModeStatusText())
 		self.goldPrinterStatus:SetText("Gold Printer: " .. getGoldPrinterStatusText())
 		self.tsmLabelClickCooldown:SetText("TSM Label Click Cooldown: " .. getTSMLabelClickCooldownText())
@@ -601,7 +583,7 @@ local function buildAceOptions()
 						SmartRez:SetEnabled(value)
 					end,
 					get = function()
-						return SmartRezDB.enabled
+						return getProfileDB().enabled
 					end,
 				},
 				help = {
