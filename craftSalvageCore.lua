@@ -9,9 +9,11 @@ local _ItemLocation = _G["ItemLocation"]
 
 function SmartRez:RebuildCraftSalvageCache()
 	local cache = {}
+	local whitelists = {}
 
 	for key in pairs(self.craftSalvageActions) do
 		cache[key] = nil
+		whitelists[key] = self:GetCraftSalvageWhitelist(key)
 	end
 
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
@@ -19,7 +21,8 @@ function SmartRez:RebuildCraftSalvageCache()
 			local itemInfo = _C_GetContainerItemInfo(bag, slot)
 			if itemInfo then
 				for key, config in pairs(self.craftSalvageActions) do
-					if config.itemIDs[itemInfo.itemID] and itemInfo.stackCount >= config.requiredStack then
+					local whitelist = whitelists[key]
+					if whitelist and whitelist[itemInfo.itemID] and itemInfo.stackCount >= config.requiredStack then
 						local existingTarget = cache[key]
 						local shouldReplace = existingTarget == nil
 

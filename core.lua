@@ -24,6 +24,7 @@ _G.SmartRez.dbDefaults = {
 	},
 	char = {
 		disenchantWhitelist = {},
+		salvageWhitelists = {},
 		recipeCrafts = {
 			shardcraft = {
 				label = "Shard Craft",

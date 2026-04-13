@@ -9,13 +9,14 @@
 ## SavedVariables: SmartRezDB
 embeds.xml
 core.lua
+craftSalvageConfig.lua
 overrideBindings.lua
+automationConfigUi.lua
 craftSalvageCore.lua
 craftRecipeCore.lua
 disenchant.lua
 salvageActions.lua
 goldPrinter.lua
-cooking.lua
 recipeCrafts.lua
 snipeAuctionator.lua
 tsmLabelClick.lua

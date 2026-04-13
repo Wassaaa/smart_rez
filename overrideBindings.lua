@@ -80,9 +80,10 @@ local function initializeDB()
 end
 
 local overrideFrame = CreateFrame("Frame", "SmartRezOverrideFrame", UIParent)
-local managedFrames = {}
+-- Standalone UI files register here so RefreshViews can redraw them together.
+SmartRez.managedFrames = SmartRez.managedFrames or {}
+local managedFrames = SmartRez.managedFrames
 local optionsPanel
-local automationConfigFrame
 
 local function refreshViews()
 	for _, frame in ipairs(managedFrames) do
@@ -168,7 +169,6 @@ toggleButton:SetScript("OnClick", function()
 end)
 
 local optionsFrame
-local showAutomationConfigWindow
 
 local function createOptionsPopup()
 	if optionsFrame then
@@ -287,7 +287,7 @@ local function createOptionsPopup()
 	optionsFrame.configButton:SetText("Open Setup")
 	optionsFrame.configButton:SetWidth(125)
 	optionsFrame.configButton:SetCallback("OnClick", function()
-		showAutomationConfigWindow()
+		SmartRez:ShowAutomationConfigWindow()
 	end)
 	buttonGroup:AddChild(optionsFrame.configButton)
 
@@ -330,243 +330,6 @@ local function toggleOptionsPopup()
 	end
 end
 
-local function getItemDisplay(itemID)
-	if not itemID then
-		return "Empty"
-	end
-
-	local itemName, itemLink, _, _, _, _, _, _, _, itemIcon = _G["GetItemInfo"](itemID)
-	return itemLink or itemName or ("item:" .. itemID), itemIcon
-end
-
-local function getDisplayFromLinkOrID(itemLink, itemID)
-	if itemLink then
-		local _, _, _, _, _, _, _, _, _, itemIcon = _G["GetItemInfo"](itemLink)
-		return itemLink, itemIcon
-	end
-
-	return getItemDisplay(itemID)
-end
-
-local function getCursorItemID()
-	local cursorType, itemID = _G["GetCursorInfo"]()
-	if cursorType == "item" and itemID then
-		return itemID
-	end
-end
-
-local function createAutomationConfigWindow()
-	if automationConfigFrame then
-		return automationConfigFrame
-	end
-
-	automationConfigFrame = AceGUI:Create("Window")
-	automationConfigFrame:SetTitle(APP_NAME .. " Config")
-	automationConfigFrame:SetStatusText("")
-	automationConfigFrame:SetWidth(620)
-	automationConfigFrame:SetHeight(560)
-	automationConfigFrame:EnableResize(false)
-	automationConfigFrame:SetLayout("Fill")
-	automationConfigFrame.frame:SetFrameStrata("DIALOG")
-	automationConfigFrame:SetCallback("OnClose", function(widget)
-		widget:Hide()
-	end)
-
-	automationConfigFrame.scroll = AceGUI:Create("ScrollFrame")
-	automationConfigFrame.scroll:SetLayout("List")
-	automationConfigFrame:AddChild(automationConfigFrame.scroll)
-
-	function automationConfigFrame:Refresh()
-		self.scroll:ReleaseChildren()
-
-		local disenchantGroup = AceGUI:Create("InlineGroup")
-		disenchantGroup:SetTitle("Disenchant Whitelist")
-		disenchantGroup:SetFullWidth(true)
-		disenchantGroup:SetLayout("List")
-		self.scroll:AddChild(disenchantGroup)
-
-		local disenchantHelp = AceGUI:Create("Label")
-		disenchantHelp:SetFullWidth(true)
-		disenchantHelp:SetText(colorize("A5D6FF", "Pick up an item, then click Add Cursor Item."))
-		disenchantGroup:AddChild(disenchantHelp)
-
-		local disenchantSpacer = AceGUI:Create("Label")
-		disenchantSpacer:SetFullWidth(true)
-		disenchantSpacer:SetText(" ")
-		disenchantGroup:AddChild(disenchantSpacer)
-
-		local addDisenchantButton = AceGUI:Create("Button")
-		addDisenchantButton:SetText("Add Cursor Item")
-		addDisenchantButton:SetWidth(170)
-		addDisenchantButton:SetCallback("OnClick", function()
-			local itemID = getCursorItemID()
-			if not itemID then
-				print("Smart Rez: pick up an item first, then click Add Cursor Item.")
-				return
-			end
-			SmartRez:AddDisenchantWhitelistItem(itemID)
-			_G["ClearCursor"]()
-		end)
-		disenchantGroup:AddChild(addDisenchantButton)
-
-		local whitelistIDs = {}
-		for itemID in pairs(SmartRez:GetDisenchantWhitelist()) do
-			table.insert(whitelistIDs, itemID)
-		end
-		table.sort(whitelistIDs)
-
-		for _, itemID in ipairs(whitelistIDs) do
-			local row = AceGUI:Create("SimpleGroup")
-			row:SetFullWidth(true)
-			row:SetLayout("Flow")
-			disenchantGroup:AddChild(row)
-
-			local label = AceGUI:Create("InteractiveLabel")
-			label:SetWidth(430)
-			label:SetText(select(1, getItemDisplay(itemID)))
-			row:AddChild(label)
-
-			local removeButton = AceGUI:Create("Button")
-			removeButton:SetText("Remove Item")
-			removeButton:SetWidth(110)
-			removeButton:SetCallback("OnClick", function()
-				SmartRez:RemoveDisenchantWhitelistItem(itemID)
-			end)
-			row:AddChild(removeButton)
-		end
-
-		local recipeGroup = AceGUI:Create("InlineGroup")
-		recipeGroup:SetTitle("Shard Craft")
-		recipeGroup:SetFullWidth(true)
-		recipeGroup:SetLayout("List")
-		self.scroll:AddChild(recipeGroup)
-
-		local recipeConfig = SmartRez:GetRecipeCraftConfig("shardcraft")
-		local currentState = SmartRez.currentProfessionState
-
-		local recipeSummary = AceGUI:Create("Label")
-		recipeSummary:SetFullWidth(true)
-		recipeSummary:SetText(string.format(
-			"%s %s  |  %s %s  |  %s %s",
-			colorize("A5D6FF", "Recipe:"),
-			tostring(recipeConfig.label or "Unset"),
-			colorize("A5D6FF", "ID:"),
-			tostring(recipeConfig.recipeID or "Unset"),
-			colorize("A5D6FF", "Profession:"),
-			tostring(recipeConfig.requiredProfession or "Unset")
-		))
-		recipeGroup:AddChild(recipeSummary)
-
-		local recipeHelp = AceGUI:Create("Label")
-		recipeHelp:SetFullWidth(true)
-		recipeHelp:SetText(colorize("A5D6FF", "Use Selected Recipe to save the active profession recipe and reagents."))
-		recipeGroup:AddChild(recipeHelp)
-
-		local recipeSpacer = AceGUI:Create("Label")
-		recipeSpacer:SetFullWidth(true)
-		recipeSpacer:SetText(" ")
-		recipeGroup:AddChild(recipeSpacer)
-
-		local recipeButton = AceGUI:Create("Button")
-		recipeButton:SetText("Use Selected Recipe")
-		recipeButton:SetWidth(200)
-		recipeButton:SetCallback("OnClick", function()
-			local ok, err = SmartRez:LoadRecipeCraftFromSelection("shardcraft")
-			if not ok and err then
-				print("Smart Rez:", err)
-			end
-		end)
-		recipeGroup:AddChild(recipeButton)
-
-		local recipeButtonSpacer = AceGUI:Create("Label")
-		recipeButtonSpacer:SetFullWidth(true)
-		recipeButtonSpacer:SetText(" ")
-		recipeGroup:AddChild(recipeButtonSpacer)
-
-		local resultLabel = AceGUI:Create("InteractiveLabel")
-		resultLabel:SetFullWidth(true)
-		resultLabel:SetText(colorize("7EE787", "Crafting: ") .. select(1, getDisplayFromLinkOrID(recipeConfig.outputItemLink, recipeConfig.outputItemID)))
-		recipeGroup:AddChild(resultLabel)
-
-		local reagentSpacer = AceGUI:Create("Label")
-		reagentSpacer:SetFullWidth(true)
-		reagentSpacer:SetText(" ")
-		recipeGroup:AddChild(reagentSpacer)
-
-		local reagentHeader = AceGUI:Create("Label")
-		reagentHeader:SetFullWidth(true)
-		reagentHeader:SetText(colorize("FFD866", "Using reagents:"))
-		recipeGroup:AddChild(reagentHeader)
-
-		for reagentIndex, reagent in ipairs(recipeConfig.reagents or {}) do
-			local reagentLabel = AceGUI:Create("InteractiveLabel")
-			reagentLabel:SetFullWidth(true)
-			reagentLabel:SetText(string.format(
-				"%d. x%s %s",
-				reagentIndex,
-				tostring(reagent.quantity or "?"),
-				select(1, getItemDisplay(reagent.itemID))
-			))
-			recipeGroup:AddChild(reagentLabel)
-		end
-
-		if #(recipeConfig.reagents or {}) == 0 then
-			local emptyReagents = AceGUI:Create("Label")
-			emptyReagents:SetFullWidth(true)
-			emptyReagents:SetText("No reagents captured yet. Use Selected Recipe first.")
-			recipeGroup:AddChild(emptyReagents)
-		end
-
-		local goldPrinterGroup = AceGUI:Create("InlineGroup")
-		goldPrinterGroup:SetTitle("Gold Printer")
-		goldPrinterGroup:SetFullWidth(true)
-		goldPrinterGroup:SetLayout("List")
-		self.scroll:AddChild(goldPrinterGroup)
-
-		local goldPrinterHelp = AceGUI:Create("Label")
-		goldPrinterHelp:SetFullWidth(true)
-		goldPrinterHelp:SetText(colorize("A5D6FF", "Crafts first, then disenchants, then shatters."))
-		goldPrinterGroup:AddChild(goldPrinterHelp)
-
-		local goldPrinterStatus = AceGUI:Create("Label")
-		goldPrinterStatus:SetFullWidth(true)
-		goldPrinterStatus:SetText("Current phase: " .. getGoldPrinterStatusText())
-		goldPrinterGroup:AddChild(goldPrinterStatus)
-
-		local goldPrinterSlider = AceGUI:Create("Slider")
-		goldPrinterSlider:SetFullWidth(true)
-		goldPrinterSlider:SetLabel("Minimum free bag slots to keep while crafting")
-		goldPrinterSlider:SetSliderValues(1, 20, 1)
-		goldPrinterSlider:SetValue(SmartRez:GetGoldPrinterMinFreeSlots())
-		goldPrinterSlider:SetCallback("OnValueChanged", function(_, _, value)
-			SmartRez:SetGoldPrinterMinFreeSlots(math.floor((value or 1) + 0.5))
-		end)
-		goldPrinterGroup:AddChild(goldPrinterSlider)
-
-		local footerGroup = AceGUI:Create("SimpleGroup")
-		footerGroup:SetFullWidth(true)
-		footerGroup:SetLayout("Flow")
-		self.scroll:AddChild(footerGroup)
-
-		local closeButton = AceGUI:Create("Button")
-		closeButton:SetText(CLOSE)
-		closeButton:SetWidth(100)
-		closeButton:SetCallback("OnClick", function()
-			automationConfigFrame:Hide()
-		end)
-		footerGroup:AddChild(closeButton)
-	end
-
-	table.insert(managedFrames, automationConfigFrame)
-	return automationConfigFrame
-end
-
-showAutomationConfigWindow = function()
-	local configWindow = createAutomationConfigWindow()
-	configWindow:Refresh()
-	configWindow:Show()
-end
-
 local function buildAceOptions()
 	local args = {
 		general = {
@@ -597,20 +360,6 @@ local function buildAceOptions()
 					name = "Click a bind field, then press any key, mouse button, or mouse wheel. Press Escape to clear.",
 					order = 30,
 					fontSize = "medium",
-				},
-				goldprinterslots = {
-					type = "range",
-					name = "Gold Printer minimum free bag slots",
-					order = 40,
-					min = 1,
-					max = 20,
-					step = 1,
-					set = function(_, value)
-						SmartRez:SetGoldPrinterMinFreeSlots(value)
-					end,
-					get = function()
-						return SmartRez:GetGoldPrinterMinFreeSlots()
-					end,
 				},
 			},
 		},
@@ -672,10 +421,10 @@ local function buildAceOptions()
 				},
 				openconfig = {
 					type = "execute",
-					name = "Open Automation Config",
+					name = "Open Setup",
 					order = 15,
 					func = function()
-						showAutomationConfigWindow()
+						SmartRez:ShowAutomationConfigWindow()
 					end,
 				},
 				slashhint = {
@@ -754,7 +503,7 @@ function SmartRez:ChatCommand(msg)
 	if command == "" or command == "config" then
 		openSettingsCategory()
 	elseif command == "setup" or command == "items" then
-		showAutomationConfigWindow()
+		SmartRez:ShowAutomationConfigWindow()
 	elseif tsmsRestriction and tsmsLabel then
 		self:ClickVisibleTSMButton(tsmsLabel, tsmsRestriction)
 	elseif tsmMailLabel then
