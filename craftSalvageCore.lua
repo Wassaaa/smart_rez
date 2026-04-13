@@ -9,29 +9,36 @@ local _ItemLocation = _G["ItemLocation"]
 
 function SmartRez:RebuildCraftSalvageCache()
 	local cache = {}
-	local whitelists = {}
+	local activeProfessions = {}
 
-	for key in pairs(self.craftSalvageActions) do
-		cache[key] = nil
-		whitelists[key] = self:GetCraftSalvageWhitelist(key)
+	for professionKey, professionConfig in pairs(self.craftSalvageProfessions) do
+		local selection = self:GetCraftSalvageSelection(professionKey)
+		if selection and selection.recipeID and selection.requiredStack and self:HasProfession(professionConfig.professionID) then
+			activeProfessions[professionKey] = {
+				selection = selection,
+				whitelist = self:GetCraftSalvageWhitelist(professionKey),
+			}
+		end
 	end
 
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
 		for slot = 1, _C_GetContainerNumSlots(bag) do
 			local itemInfo = _C_GetContainerItemInfo(bag, slot)
 			if itemInfo then
-				for key, config in pairs(self.craftSalvageActions) do
-					local whitelist = whitelists[key]
-					if whitelist and whitelist[itemInfo.itemID] and itemInfo.stackCount >= config.requiredStack then
-						local existingTarget = cache[key]
+				for professionKey, professionState in pairs(activeProfessions) do
+					local selection = professionState.selection
+					local whitelist = professionState.whitelist
+
+					if whitelist[itemInfo.itemID] and itemInfo.stackCount >= selection.requiredStack then
+						local existingTarget = cache[professionKey]
 						local shouldReplace = existingTarget == nil
 
-						if not shouldReplace and config.preferLargestStack and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
+						if not shouldReplace and selection.preferLargestStack and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
 							shouldReplace = true
 						end
 
 						if shouldReplace then
-							cache[key] = {
+							cache[professionKey] = {
 								bag = bag,
 								slot = slot,
 								itemInfo = itemInfo,
@@ -47,42 +54,51 @@ function SmartRez:RebuildCraftSalvageCache()
 	self.craftSalvageCacheDirty = false
 end
 
-function SmartRez:GetCraftSalvageTarget(key)
+function SmartRez:GetCraftSalvageTarget(professionKey)
 	if self.craftSalvageCacheDirty then
 		self:RebuildCraftSalvageCache()
 	end
 
-	return self.craftSalvageCache[key]
+	return self.craftSalvageCache[professionKey]
 end
 
-function SmartRez:RegisterCraftSalvageAction(config)
+function SmartRez:RegisterCraftSalvageProfession(config)
 	local itemLocation = _ItemLocation:CreateEmpty()
 	local actionFrame = CreateFrame("Frame")
 	local lastSortTime = 0
 
-	config.requiredStack = config.requiredStack or 1
-	self.craftSalvageActions[config.key] = config
+	self.craftSalvageProfessions[config.key] = config
 	actionFrame.btn = CreateFrame("Button", config.buttonName, UIParent, "SecureActionButtonTemplate")
 	actionFrame.btn:RegisterForClicks("AnyUp", "AnyDown")
 
-	if config.sortBagsOnLoad then
+	local selection = self:GetCraftSalvageSelection(config.key)
+	if selection and selection.sortBagsOnLoad and self:HasProfession(config.professionID) then
 		_C_SortBags()
 		self:MarkCraftSalvageCacheDirty()
 	end
 
 	actionFrame.btn:SetScript("OnClick", function()
+		if not SmartRez:HasProfession(config.professionID) then
+			return
+		end
+
+		local selection = SmartRez:GetCraftSalvageSelection(config.key)
+		if not selection or not selection.recipeID then
+			return
+		end
+
 		local target = SmartRez:GetCraftSalvageTarget(config.key)
 		if target then
-			local casts = math.floor(target.itemInfo.stackCount / config.requiredStack)
-			itemLocation:SetBagAndSlot(target.bag, target.slot)
-			_C_TradeSkillUI_CraftSalvage(config.recipeID, casts, itemLocation)
-			SmartRez:MarkCraftSalvageCacheDirty()
-		else
-			if config.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then
-				_C_SortBags()
-				lastSortTime = _GetTime()
+			local casts = math.floor(target.itemInfo.stackCount / selection.requiredStack)
+			if casts > 0 then
+				itemLocation:SetBagAndSlot(target.bag, target.slot)
+				_C_TradeSkillUI_CraftSalvage(selection.recipeID, casts, itemLocation)
 				SmartRez:MarkCraftSalvageCacheDirty()
 			end
+		elseif selection.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then
+			_C_SortBags()
+			lastSortTime = _GetTime()
+			SmartRez:MarkCraftSalvageCacheDirty()
 		end
 	end)
 
@@ -91,6 +107,7 @@ function SmartRez:RegisterCraftSalvageAction(config)
 		label = config.label,
 		buttonName = config.buttonName,
 		order = config.order,
+		requiredProfession = config.professionID,
 	})
 	SmartRez:MarkCraftSalvageCacheDirty()
 

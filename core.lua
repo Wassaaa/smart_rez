@@ -1,7 +1,8 @@
 _G.SmartRez = LibStub("AceAddon-3.0"):NewAddon("SmartRez", "AceConsole-3.0", "AceEvent-3.0")
 _G.SmartRez.appName = "Smart Rez"
 _G.SmartRez.bindableActions = {}
-_G.SmartRez.craftSalvageActions = {}
+_G.SmartRez.craftSalvageProfessions = {}
+_G.SmartRez.craftSalvageRecipes = {}
 _G.SmartRez.craftSalvageCache = {}
 _G.SmartRez.craftSalvageCacheDirty = true
 _G.SmartRez.craftRecipeActions = {}
@@ -25,6 +26,7 @@ _G.SmartRez.dbDefaults = {
 	char = {
 		disenchantWhitelist = {},
 		salvageWhitelists = {},
+		salvageSelections = {},
 		recipeCrafts = {
 			shardcraft = {
 				label = "Shard Craft",
@@ -493,6 +495,7 @@ end
 
 function _G.SmartRez:HandleProfessionsChanged()
 	self:RefreshKnownProfessions()
+	self:MarkCraftSalvageCacheDirty()
 	self:MarkCraftRecipeCacheDirty()
 
 	if self.RefreshViews then

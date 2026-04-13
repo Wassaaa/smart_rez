@@ -318,14 +318,14 @@ local function renderGoldPrinterTab(parent)
 	renderGoldPrinterGroup(parent)
 end
 
-local function getAutomationTabValue(actionKey)
-	return "salvage:" .. tostring(actionKey)
+local function getAutomationTabValue(professionKey)
+	return "salvage:" .. tostring(professionKey)
 end
 
-local function getAutomationTabAction(groupValue)
-	local actionKey = type(groupValue) == "string" and groupValue:match("^salvage:(.+)$")
-	if actionKey then
-		return SmartRez:GetCraftSalvageAction(actionKey)
+local function getAutomationTabProfession(groupValue)
+	local professionKey = type(groupValue) == "string" and groupValue:match("^salvage:(.+)$")
+	if professionKey then
+		return SmartRez:GetCraftSalvageProfession(professionKey)
 	end
 end
 
@@ -334,10 +334,10 @@ local function buildAutomationTabs()
 		{ text = "Gold Printer", value = "goldprinter" },
 	}
 
-	for _, action in ipairs(SmartRez:GetCraftSalvageActions()) do
+	for _, profession in ipairs(SmartRez:GetCraftSalvageProfessions(true)) do
 		tabs[#tabs + 1] = {
-			text = action.label,
-			value = getAutomationTabValue(action.key),
+			text = profession.label,
+			value = getAutomationTabValue(profession.key),
 		}
 	end
 
@@ -345,12 +345,23 @@ local function buildAutomationTabs()
 end
 
 local function isAutomationTabAvailable(groupValue)
-	return groupValue == "goldprinter" or getAutomationTabAction(groupValue) ~= nil
+	if groupValue == "goldprinter" then
+		return true
+	end
+
+	local profession = getAutomationTabProfession(groupValue)
+	return profession ~= nil and SmartRez:HasProfession(profession.professionID)
 end
 
-local function renderCraftSalvageTab(parent, action)
+local function renderCraftSalvageTab(parent, profession)
+	local selection = SmartRez:GetCraftSalvageSelection(profession.key)
+	local sourceText = "none"
+	if selection then
+		sourceText = selection.isDefault and "default" or "saved"
+	end
+
 	local summary = AceGUI:Create("InlineGroup")
-	summary:SetTitle(action.label)
+	summary:SetTitle(profession.label)
 	summary:SetFullWidth(true)
 	summary:SetLayout("List")
 	parent:AddChild(summary)
@@ -358,15 +369,46 @@ local function renderCraftSalvageTab(parent, action)
 	local summaryLabel = AceGUI:Create("Label")
 	summaryLabel:SetFullWidth(true)
 	summaryLabel:SetText(string.format(
-		"%s %s  |  %s %s",
+		"%s %s  |  %s %s  |  %s %s",
+		colorize("A5D6FF", "Recipe:"),
+		tostring(selection and selection.label or "Unset"),
+		colorize("A5D6FF", "ID:"),
+		tostring(selection and selection.recipeID or "Unset"),
 		colorize("A5D6FF", "Stack:"),
-		tostring(action.requiredStack or 1),
-		colorize("A5D6FF", "Keybinds:"),
-		"main settings"
+		tostring(selection and selection.requiredStack or 1)
 	))
 	summary:AddChild(summaryLabel)
 
-	local target = SmartRez:GetCraftSalvageTarget(action.key)
+	local sourceLabel = AceGUI:Create("Label")
+	sourceLabel:SetFullWidth(true)
+	sourceLabel:SetText(string.format(
+		"%s %s  |  %s %s",
+		colorize("A5D6FF", "Source:"),
+		sourceText,
+		colorize("A5D6FF", "Keybinds:"),
+		"main settings"
+	))
+	summary:AddChild(sourceLabel)
+
+	local recipeHelp = AceGUI:Create("Label")
+	recipeHelp:SetFullWidth(true)
+	recipeHelp:SetText(colorize("A5D6FF", "Open this profession, select a salvage recipe, then click Use Selected Recipe."))
+	summary:AddChild(recipeHelp)
+
+	local recipeButton = AceGUI:Create("Button")
+	recipeButton:SetText("Use Selected Recipe")
+	recipeButton:SetWidth(200)
+	recipeButton:SetCallback("OnClick", function()
+		local ok, err = SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(profession.key)
+		if not ok and err then
+			print("Smart Rez:", err)
+		end
+	end)
+	summary:AddChild(recipeButton)
+
+	addSectionSpacer(summary)
+
+	local target = SmartRez:GetCraftSalvageTarget(profession.key)
 	local targetLabel = AceGUI:Create("Label")
 	targetLabel:SetFullWidth(true)
 	if target then
@@ -382,17 +424,17 @@ local function renderCraftSalvageTab(parent, action)
 
 	renderItemWhitelistGroup(parent, {
 		title = "Allowed Items",
-		helpText = "Items allowed for " .. string.lower(action.label) .. ".",
+		helpText = "Items allowed for " .. string.lower(profession.label) .. ".",
 		getItemSet = function()
-			return SmartRez:GetCraftSalvageWhitelist(action.key)
+			return SmartRez:GetCraftSalvageWhitelist(profession.key)
 		end,
 		addItemFunc = function(itemID)
-			SmartRez:AddCraftSalvageWhitelistItem(action.key, itemID)
+			SmartRez:AddCraftSalvageWhitelistItem(profession.key, itemID)
 		end,
 		removeItemFunc = function(itemID)
-			SmartRez:RemoveCraftSalvageWhitelistItem(action.key, itemID)
+			SmartRez:RemoveCraftSalvageWhitelistItem(profession.key, itemID)
 		end,
-		missingItemMessage = "Smart Rez: pick up an item first, then add it to " .. string.lower(action.label) .. ".",
+		missingItemMessage = "Smart Rez: pick up an item first, then add it to " .. string.lower(profession.label) .. ".",
 		emptyText = "No items configured yet.",
 	})
 end
@@ -424,9 +466,9 @@ local function renderAutomationGroup(tabGroup, groupValue)
 	if groupValue == "goldprinter" then
 		renderGoldPrinterTab(scroll)
 	else
-		local action = getAutomationTabAction(groupValue)
-		if action then
-			renderCraftSalvageTab(scroll, action)
+		local profession = getAutomationTabProfession(groupValue)
+		if profession then
+			renderCraftSalvageTab(scroll, profession)
 		end
 	end
 

@@ -60,15 +60,25 @@ local function getBindingDisplay(actionKey)
 	return colorize("79C0FF", binding)
 end
 
+local LEGACY_BINDING_KEY_MAP = {
+	milling = "inscription",
+	prospecting = "jewelcrafting",
+	recycling = "engineering",
+	shatter = "enchanting",
+	shattering = "enchanting",
+	thauma = "alchemy",
+	thaumaturgy = "alchemy",
+}
+
 local function initializeDB()
 	local profile = getProfileDB()
 
-	if profile.bindings.thaumaturgy == nil and profile.bindings.thauma ~= nil then
-		profile.bindings.thaumaturgy = profile.bindings.thauma
-	end
-
-	if profile.bindings.shattering == nil and profile.bindings.shatter ~= nil then
-		profile.bindings.shattering = profile.bindings.shatter
+	for oldKey, newKey in pairs(LEGACY_BINDING_KEY_MAP) do
+		local oldBinding = trim(profile.bindings[oldKey])
+		local newBinding = trim(profile.bindings[newKey])
+		if oldBinding ~= "" and newBinding == "" then
+			profile.bindings[newKey] = oldBinding
+		end
 	end
 
 	for _, action in ipairs(getActions()) do

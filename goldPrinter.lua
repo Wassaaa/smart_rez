@@ -1,7 +1,7 @@
 local SmartRez = _G.SmartRez
 
 local SHARD_CRAFT_KEY = "shardcraft"
-local SHATTERING_KEY = "shattering"
+local SHATTERING_KEY = "enchanting"
 
 local PHASE_CRAFT = "craft"
 local PHASE_DISENCHANT = "disenchant"
