@@ -88,6 +88,7 @@ SmartRez:RegisterCraftSalvageAction({
   preferLargestStack = true,
   itemIDs = {
     [236761] = true, -- Tranquility Bloom r1
+    [236767] = true, -- Tranquility Bloom r2
   },
   sortBagsOnLoad = true,
   sortBagsWhenEmpty = true,
