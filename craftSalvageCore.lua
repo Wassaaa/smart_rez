@@ -6,7 +6,6 @@ local _C_SortBags = _G["C_Container"]["SortBags"]
 local _C_TradeSkillUI_CraftSalvage = _G["C_TradeSkillUI"]["CraftSalvage"]
 local _GetTime = _G["GetTime"]
 local _ItemLocation = _G["ItemLocation"]
-local _UnitCastingInfo = _G["UnitCastingInfo"]
 
 function SmartRez:RebuildCraftSalvageCache()
 	local cache = {}
@@ -56,15 +55,10 @@ end
 function SmartRez:RegisterCraftSalvageAction(config)
 	local itemLocation = _ItemLocation:CreateEmpty()
 	local actionFrame = CreateFrame("Frame")
-	local castStartTime, castEndTime = nil, nil
 	local lastSortTime = 0
 
 	config.requiredStack = config.requiredStack or 1
-	if config.lockButton == nil then
-		config.lockButton = true
-	end
 	self.craftSalvageActions[config.key] = config
-	actionFrame.unBlockButton = 0
 	actionFrame.btn = CreateFrame("Button", config.buttonName, UIParent, "SecureActionButtonTemplate")
 	actionFrame.btn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -74,30 +68,13 @@ function SmartRez:RegisterCraftSalvageAction(config)
 	end
 
 	actionFrame.btn:SetScript("OnClick", function()
-		if actionFrame.unBlockButton > _GetTime() then
-			return
-		end
-
 		local target = SmartRez:GetCraftSalvageTarget(config.key)
 		if target then
-			local casts = config.castCount and config.castCount(target.itemInfo) or 1
+			local casts = math.floor(target.itemInfo.stackCount / config.requiredStack)
 			itemLocation:SetBagAndSlot(target.bag, target.slot)
-			if config.lockButton then
-				actionFrame:RegisterEvents()
-			else
-				actionFrame:UnregisterAllEvents()
-				actionFrame.unBlockButton = 0
-			end
 			_C_TradeSkillUI_CraftSalvage(config.recipeID, casts, itemLocation)
 			SmartRez:MarkCraftSalvageCacheDirty()
-			if config.lockButton then
-				castStartTime, castEndTime = select(4, _UnitCastingInfo("player"))
-				if castStartTime and castEndTime then
-					actionFrame.unBlockButton = _GetTime() + ((castEndTime - castStartTime) / 1000)
-				end
-			end
 		else
-			actionFrame:UnregisterAllEvents()
 			if config.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then
 				_C_SortBags()
 				lastSortTime = _GetTime()
@@ -105,21 +82,6 @@ function SmartRez:RegisterCraftSalvageAction(config)
 			end
 		end
 	end)
-
-	function actionFrame:RegisterEvents()
-		self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-		self:RegisterEvent("UNIT_SPELLCAST_STOP")
-		self:RegisterEvent("UNIT_SPELLCAST_FAILED")
-		self:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
-		self:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-		self:SetScript("OnEvent", function(_, eventName, eventData)
-			if eventData == "player" then
-				actionFrame.unBlockButton = _GetTime()
-				SmartRez:MarkCraftSalvageCacheDirty()
-				actionFrame:UnregisterAllEvents()
-			end
-		end)
-	end
 
 	SmartRez:RegisterBindableAction({
 		key = config.key,
