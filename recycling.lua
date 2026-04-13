@@ -14,3 +14,4 @@ SmartRez:RegisterCraftSalvageAction({
   sortBagsOnLoad = true,
   sortBagsWhenEmpty = true,
 })
+
