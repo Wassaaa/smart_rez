@@ -6,7 +6,7 @@
 ## SavedVariables: QuantityMemory
 ## SavedVariables: BaitMemory
 ## SavedVariables: SmartRezLowModeDB
-## SavedVariables: SmartRezDB
+## SavedVariablesPerCharacter: SmartRezDB
 embeds.xml
 core.lua
 craftSalvageConfig.lua

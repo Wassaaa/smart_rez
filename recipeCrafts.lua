@@ -1,7 +1,21 @@
 local SmartRez = _G.SmartRez
+local _floor = math.floor
 
 local function getShardCraftConfigValue(key)
 	return SmartRez:GetRecipeCraftConfig("shardcraft")[key]
+end
+
+local function getShardCraftBagLimitedCasts()
+	local freeSlotsToSpend = SmartRez:GetFreeBagSlots() - SmartRez:GetGoldPrinterMinFreeSlots()
+	if freeSlotsToSpend <= 0 then
+		return 0
+	end
+
+	-- Treat each possible output item as consuming one free slot. This is conservative,
+	-- but it keeps Gold Printer from overfilling bags when the craft is spammed.
+	local outputQuantityMax = tonumber(getShardCraftConfigValue("outputQuantityMax")) or 1
+	local outputPerCraft = math.max(1, outputQuantityMax)
+	return _floor(freeSlotsToSpend / outputPerCraft)
 end
 
 SmartRez:RegisterCraftRecipeAction({
@@ -23,6 +37,9 @@ SmartRez:RegisterCraftRecipeAction({
 	end,
 	debug = function()
 		return getShardCraftConfigValue("debug")
+	end,
+	maxCasts = function()
+		return getShardCraftBagLimitedCasts()
 	end,
 	reagents = function()
 		return getShardCraftConfigValue("reagents")

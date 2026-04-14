@@ -6,7 +6,7 @@ local _C_OpenTradeSkill = _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["OpenTra
 local _C_GetRecipeInfo = _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["GetRecipeInfo"]
 local _C_GetRecipeSchematic = _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["GetRecipeSchematic"]
 
-local LEGACY_SALVAGE_KEY_BY_PROFESSION = {
+local LEGACY_SALVAGE_ACTION_KEY_BY_PROFESSION = {
 	alchemy = "thaumaturgy",
 	cooking = "cooking",
 	enchanting = "shattering",
@@ -47,6 +47,32 @@ local function getSortedConfigs(configMap, availableOnly)
 	end)
 
 	return configs
+end
+
+local function getCraftSalvageWhitelistStorageKey(professionKey, selection)
+	if selection and selection.recipeKey then
+		return "recipe:" .. tostring(selection.recipeKey)
+	end
+
+	if selection and selection.recipeID then
+		return "recipeid:" .. tostring(selection.recipeID)
+	end
+
+	return "profession:" .. tostring(professionKey)
+end
+
+local function getLegacyWhitelistSourceKeys(professionKey)
+	local keys = {
+		professionKey,
+		"profession:" .. tostring(professionKey),
+	}
+
+	local legacyActionKey = LEGACY_SALVAGE_ACTION_KEY_BY_PROFESSION[professionKey]
+	if legacyActionKey and legacyActionKey ~= professionKey then
+		keys[#keys + 1] = legacyActionKey
+	end
+
+	return keys
 end
 
 local function mergeSelectionDefaults(selection, fallback)
@@ -191,22 +217,33 @@ function SmartRez:GetCraftSalvageProfessions(availableOnly)
 	return getSortedConfigs(self.craftSalvageProfessions, availableOnly)
 end
 
--- Keep salvage whitelists character-scoped since inventory and professions differ per alt.
+function SmartRez:GetCraftSalvageWhitelistStorageKey(professionKey)
+	local selection = professionKey and self:GetCraftSalvageSelection(professionKey) or nil
+	return getCraftSalvageWhitelistStorageKey(professionKey, selection)
+end
+
+-- Keep salvage whitelists character-scoped and tied to the currently selected recipe.
 function SmartRez:GetCraftSalvageWhitelist(professionKey)
 	self:EnsureConfig()
 
-	if type(self.db.char.salvageWhitelists[professionKey]) ~= "table" then
-		local legacyKey = LEGACY_SALVAGE_KEY_BY_PROFESSION[professionKey]
-		local legacyWhitelist = legacyKey and self.db.char.salvageWhitelists[legacyKey]
+	local storageKey = self:GetCraftSalvageWhitelistStorageKey(professionKey)
+	local whitelists = self.db.salvageWhitelists
 
-		if type(legacyWhitelist) == "table" then
-			self.db.char.salvageWhitelists[professionKey] = legacyWhitelist
-		else
-			self.db.char.salvageWhitelists[professionKey] = {}
+	if type(whitelists[storageKey]) ~= "table" then
+		for _, sourceKey in ipairs(getLegacyWhitelistSourceKeys(professionKey)) do
+			if sourceKey ~= storageKey and type(whitelists[sourceKey]) == "table" then
+				whitelists[storageKey] = whitelists[sourceKey]
+				whitelists[sourceKey] = nil
+				break
+			end
 		end
 	end
 
-	return self.db.char.salvageWhitelists[professionKey]
+	if type(whitelists[storageKey]) ~= "table" then
+		whitelists[storageKey] = {}
+	end
+
+	return whitelists[storageKey]
 end
 
 function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID)
@@ -235,7 +272,7 @@ function SmartRez:GetCraftSalvageSelection(professionKey)
 		return nil
 	end
 
-	local savedSelection = self.db.char.salvageSelections[professionKey]
+	local savedSelection = self.db.salvageSelections[professionKey]
 	if type(savedSelection) == "table" and savedSelection.recipeID then
 		local selection = copyTable(savedSelection)
 		local registeredRecipe = selection.recipeKey and self:GetCraftSalvageRecipe(selection.recipeKey) or nil
@@ -263,7 +300,7 @@ function SmartRez:SetCraftSalvageSelection(professionKey, selection)
 	end
 
 	self:EnsureConfig()
-	self.db.char.salvageSelections[professionKey] = copyTable(selection or {})
+	self.db.salvageSelections[professionKey] = copyTable(selection or {})
 	self:MarkCraftSalvageCacheDirty()
 	self:RefreshViews()
 end

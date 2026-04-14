@@ -355,6 +355,7 @@ end
 
 local function renderCraftSalvageTab(parent, profession)
 	local selection = SmartRez:GetCraftSalvageSelection(profession.key)
+	local whitelistLabel = selection and selection.label or profession.label
 	local sourceText = "none"
 	if selection then
 		sourceText = selection.isDefault and "default" or "saved"
@@ -424,7 +425,7 @@ local function renderCraftSalvageTab(parent, profession)
 
 	renderItemWhitelistGroup(parent, {
 		title = "Allowed Items",
-		helpText = "Items allowed for " .. string.lower(profession.label) .. ".",
+		helpText = "Items allowed for " .. whitelistLabel .. ".",
 		getItemSet = function()
 			return SmartRez:GetCraftSalvageWhitelist(profession.key)
 		end,
@@ -434,7 +435,7 @@ local function renderCraftSalvageTab(parent, profession)
 		removeItemFunc = function(itemID)
 			SmartRez:RemoveCraftSalvageWhitelistItem(profession.key, itemID)
 		end,
-		missingItemMessage = "Smart Rez: pick up an item first, then add it to " .. string.lower(profession.label) .. ".",
+		missingItemMessage = "Smart Rez: pick up an item first, then add it to " .. whitelistLabel .. ".",
 		emptyText = "No items configured yet.",
 	})
 end

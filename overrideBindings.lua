@@ -10,9 +10,9 @@ local function trim(text)
 	return (text or ""):match("^%s*(.-)%s*$")
 end
 
-local function getProfileDB()
+local function getConfigDB()
 	SmartRez:EnsureConfig()
-	return SmartRez.db.profile
+	return SmartRez.db
 end
 
 local function colorize(hexColor, text)
@@ -20,7 +20,7 @@ local function colorize(hexColor, text)
 end
 
 local function getModeStatusText()
-	if getProfileDB().enabled then
+	if getConfigDB().enabled then
 		return colorize("7EE787", "Enabled")
 	end
 	return colorize("FFB86C", "Disabled")
@@ -49,7 +49,7 @@ local function getActions()
 end
 
 local function getBindingValue(actionKey)
-	return trim(getProfileDB().bindings[actionKey] or ""):upper()
+	return trim(getConfigDB().bindings[actionKey] or ""):upper()
 end
 
 local function getBindingDisplay(actionKey)
@@ -71,21 +71,21 @@ local LEGACY_BINDING_KEY_MAP = {
 }
 
 local function initializeDB()
-	local profile = getProfileDB()
+	local config = getConfigDB()
 
 	for oldKey, newKey in pairs(LEGACY_BINDING_KEY_MAP) do
-		local oldBinding = trim(profile.bindings[oldKey])
-		local newBinding = trim(profile.bindings[newKey])
+		local oldBinding = trim(config.bindings[oldKey])
+		local newBinding = trim(config.bindings[newKey])
 		if oldBinding ~= "" and newBinding == "" then
-			profile.bindings[newKey] = oldBinding
+			config.bindings[newKey] = oldBinding
 		end
 	end
 
 	for _, action in ipairs(getActions()) do
-		if profile.bindings[action.key] == nil then
-			profile.bindings[action.key] = ""
+		if config.bindings[action.key] == nil then
+			config.bindings[action.key] = ""
 		end
-		profile.bindings[action.key] = trim(profile.bindings[action.key])
+		config.bindings[action.key] = trim(config.bindings[action.key])
 	end
 end
 
@@ -112,7 +112,7 @@ local function applyOverrideBindings()
 
 	ClearOverrideBindings(overrideFrame)
 
-	if not getProfileDB().enabled then
+	if not getConfigDB().enabled then
 		return true
 	end
 
@@ -141,12 +141,12 @@ function SmartRez:SetEnabled(enabled, silent)
 		return
 	end
 
-	local profile = getProfileDB()
-	profile.enabled = enabled and true or false
+	local config = getConfigDB()
+	config.enabled = enabled and true or false
 	applyOverrideBindings()
 
 	if not silent then
-		if profile.enabled then
+		if config.enabled then
 			print("Smart Rez: override keybinds enabled.")
 		else
 			print("Smart Rez: override keybinds disabled.")
@@ -157,7 +157,7 @@ function SmartRez:SetEnabled(enabled, silent)
 end
 
 function SmartRez:ToggleEnabled()
-	self:SetEnabled(not getProfileDB().enabled)
+	self:SetEnabled(not getConfigDB().enabled)
 end
 
 local function setBindingValue(actionKey, binding)
@@ -167,7 +167,7 @@ local function setBindingValue(actionKey, binding)
 		return
 	end
 
-	getProfileDB().bindings[actionKey] = trim(binding):upper()
+	getConfigDB().bindings[actionKey] = trim(binding):upper()
 	applyOverrideBindings()
 	refreshViews()
 end
@@ -310,7 +310,7 @@ local function createOptionsPopup()
 	buttonGroup:AddChild(optionsFrame.closeButton)
 
 	function optionsFrame:Refresh()
-		self.enableCheck:SetValue(getProfileDB().enabled)
+		self.enableCheck:SetValue(getConfigDB().enabled)
 		self.status:SetText("Status: " .. getModeStatusText())
 		self.goldPrinterStatus:SetText("Gold Printer: " .. getGoldPrinterStatusText())
 		self.tsmLabelClickCooldown:SetText("TSM Label Click Cooldown: " .. getTSMLabelClickCooldownText())
@@ -356,7 +356,7 @@ local function buildAceOptions()
 						SmartRez:SetEnabled(value)
 					end,
 					get = function()
-						return getProfileDB().enabled
+						return getConfigDB().enabled
 					end,
 				},
 				help = {
