@@ -1,11 +1,11 @@
 local SmartRez = _G.SmartRez
 
-local _C_GetContainerNumSlots = _G["C_Container"]["GetContainerNumSlots"]
-local _C_GetContainerItemInfo = _G["C_Container"]["GetContainerItemInfo"]
-local _C_SortBags = _G["C_Container"]["SortBags"]
-local _C_TradeSkillUI_CraftSalvage = _G["C_TradeSkillUI"]["CraftSalvage"]
-local _GetTime = _G["GetTime"]
-local _ItemLocation = _G["ItemLocation"]
+local _C_GetContainerNumSlots = C_Container.GetContainerNumSlots
+local _C_GetContainerItemInfo = C_Container.GetContainerItemInfo
+local _C_SortBags = C_Container.SortBags
+local _C_TradeSkillUI_CraftSalvage = C_TradeSkillUI.CraftSalvage
+local _GetTime = GetTime
+local _ItemLocation = ItemLocation
 
 function SmartRez:RebuildCraftSalvageCache()
 	local cache = {}

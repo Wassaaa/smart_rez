@@ -1,13 +1,13 @@
 local SmartRez = _G.SmartRez
 
-local _C_CraftRecipe = _G["C_TradeSkillUI"]["CraftRecipe"]
-local _C_GetBaseProfessionInfo = _G["C_TradeSkillUI"]["GetBaseProfessionInfo"]
-local _C_OpenTradeSkill = _G["C_TradeSkillUI"]["OpenTradeSkill"]
-local _C_OpenRecipe = _G["C_TradeSkillUI"]["OpenRecipe"]
-local _C_GetRecipeInfo = _G["C_TradeSkillUI"]["GetRecipeInfo"]
-local _C_Item_GetItemCount = _G["C_Item"] and _G["C_Item"]["GetItemCount"]
-local _GetTime = _G["GetTime"]
-local _UnitCastingInfo = _G["UnitCastingInfo"]
+local _C_CraftRecipe = C_TradeSkillUI.CraftRecipe
+local _C_GetBaseProfessionInfo = C_TradeSkillUI.GetBaseProfessionInfo
+local _C_OpenTradeSkill = C_TradeSkillUI.OpenTradeSkill
+local _C_OpenRecipe = C_TradeSkillUI.OpenRecipe
+local _C_GetRecipeInfo = C_TradeSkillUI.GetRecipeInfo
+local _C_Item_GetItemCount = C_Item and C_Item.GetItemCount
+local _GetTime = GetTime
+local _UnitCastingInfo = UnitCastingInfo
 local _floor = math.floor
 local _min = math.min
 
@@ -28,8 +28,8 @@ local function debugPrint(config, ...)
 end
 
 local function getCurrencyCount(currencyID)
-	if _G["C_CurrencyInfo"] and _G["C_CurrencyInfo"]["GetCurrencyInfo"] then
-		local currencyInfo = _G["C_CurrencyInfo"]["GetCurrencyInfo"](currencyID)
+	if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+		local currencyInfo = C_CurrencyInfo.GetCurrencyInfo(currencyID)
 		return currencyInfo and currencyInfo.quantity or 0
 	end
 

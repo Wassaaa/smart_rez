@@ -1,10 +1,10 @@
 local SmartRez = _G.SmartRez
 
-local _C_GetContainerNumSlots = _G["C_Container"]["GetContainerNumSlots"]
-local _C_GetContainerItemInfo = _G["C_Container"]["GetContainerItemInfo"]
-local _C_OpenTradeSkill = _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["OpenTradeSkill"]
-local _C_GetRecipeInfo = _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["GetRecipeInfo"]
-local _C_GetRecipeSchematic = _G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["GetRecipeSchematic"]
+local _C_GetContainerNumSlots = C_Container.GetContainerNumSlots
+local _C_GetContainerItemInfo = C_Container.GetContainerItemInfo
+local _C_OpenTradeSkill = C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill
+local _C_GetRecipeInfo = C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo
+local _C_GetRecipeSchematic = C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic
 
 local LEGACY_SALVAGE_ACTION_KEY_BY_PROFESSION = {
 	alchemy = "thaumaturgy",
@@ -306,7 +306,7 @@ function SmartRez:SetCraftSalvageSelection(professionKey, selection)
 end
 
 function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
-	if not (_G["C_TradeSkillUI"] and _G["C_TradeSkillUI"]["GetRecipeSchematic"]) then
+	if not (C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic) then
 		return false, "Recipe UI APIs are unavailable."
 	end
 
