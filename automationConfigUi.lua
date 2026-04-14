@@ -1,10 +1,15 @@
 local SmartRez = _G.SmartRez
 local APP_NAME = SmartRez.appName
 
+---@type AceGUILib
 local AceGUI = LibStub("AceGUI-3.0")
 
 SmartRez.managedFrames = SmartRez.managedFrames or {}
 
+---@class SmartRezAutomationWindow: AceGUIWindow
+---@field frame table
+---@field tabs AceGUITabGroup
+---@field selectedGroup string?
 local automationConfigFrame
 local WINDOW_WIDTH = 680
 local WINDOW_HEIGHT = 600
@@ -39,13 +44,13 @@ local function getItemDisplay(itemID)
 		return "Empty"
 	end
 
-	local itemName, itemLink, _, _, _, _, _, _, _, itemIcon = _G["GetItemInfo"](itemID)
+	local itemName, itemLink, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(itemID)
 	return itemLink or itemName or ("item:" .. itemID), itemIcon
 end
 
 local function getDisplayFromLinkOrID(itemLink, itemID)
 	if itemLink then
-		local _, _, _, _, _, _, _, _, _, itemIcon = _G["GetItemInfo"](itemLink)
+		local _, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(itemLink)
 		return itemLink, itemIcon
 	end
 
@@ -53,7 +58,7 @@ local function getDisplayFromLinkOrID(itemLink, itemID)
 end
 
 local function getCursorItemID()
-	local cursorType, itemID = _G["GetCursorInfo"]()
+	local cursorType, itemID = GetCursorInfo()
 	if cursorType == "item" and itemID then
 		return itemID
 	end
@@ -78,6 +83,7 @@ local function createHorizontalSpacer(width)
 	return spacer
 end
 
+---@param parent AceGUIContainer
 local function addSectionSpacer(parent)
 	local spacer = AceGUI:Create("Label")
 	spacer:SetFullWidth(true)
@@ -95,7 +101,7 @@ local function tryUseCursorItem(addItemFunc, missingItemMessage)
 	end
 
 	addItemFunc(itemID)
-	_G["ClearCursor"]()
+	ClearCursor()
 	return true
 end
 
@@ -109,6 +115,7 @@ local function createCursorItemButton(addItemFunc, missingItemMessage)
 	return button
 end
 
+---@param parent AceGUIContainer
 local function addWhitelistRows(parent, itemIDs, removeItemFunc)
 	for _, itemID in ipairs(itemIDs) do
 		local row = AceGUI:Create("SimpleGroup")
@@ -140,6 +147,7 @@ local function addWhitelistRows(parent, itemIDs, removeItemFunc)
 	end
 end
 
+---@param parent AceGUIContainer
 local function renderItemWhitelistGroup(parent, config)
 	local group = AceGUI:Create("InlineGroup")
 	group:SetTitle(config.title)
@@ -188,6 +196,7 @@ local function renderItemWhitelistGroup(parent, config)
 	addWhitelistRows(group, itemIDs, config.removeItemFunc)
 end
 
+---@param parent AceGUIContainer
 local function renderDisenchantWhitelist(parent)
 	renderItemWhitelistGroup(parent, {
 		title = "Disenchant Items",
@@ -206,6 +215,7 @@ local function renderDisenchantWhitelist(parent)
 	})
 end
 
+---@param parent AceGUIContainer
 local function renderRecipeCraftGroup(parent)
 	local recipeGroup = AceGUI:Create("InlineGroup")
 	recipeGroup:SetTitle("Shard Craft")
@@ -284,6 +294,7 @@ local function renderRecipeCraftGroup(parent)
 	end
 end
 
+---@param parent AceGUIContainer
 local function renderGoldPrinterGroup(parent)
 	local goldPrinterGroup = AceGUI:Create("InlineGroup")
 	goldPrinterGroup:SetTitle("Gold Printer")
@@ -312,6 +323,7 @@ local function renderGoldPrinterGroup(parent)
 	goldPrinterGroup:AddChild(goldPrinterSlider)
 end
 
+---@param parent AceGUIContainer
 local function renderGoldPrinterTab(parent)
 	renderDisenchantWhitelist(parent)
 	renderRecipeCraftGroup(parent)
@@ -353,6 +365,7 @@ local function isAutomationTabAvailable(groupValue)
 	return profession ~= nil and SmartRez:HasProfession(profession.professionID)
 end
 
+---@param parent AceGUIContainer
 local function renderCraftSalvageTab(parent, profession)
 	local selection = SmartRez:GetCraftSalvageSelection(profession.key)
 	local whitelistLabel = selection and selection.label or profession.label
@@ -440,6 +453,7 @@ local function renderCraftSalvageTab(parent, profession)
 	})
 end
 
+---@param parent AceGUIContainer
 local function renderAutomationFooter(parent)
 	local footerGroup = AceGUI:Create("SimpleGroup")
 	footerGroup:SetFullWidth(true)
@@ -455,6 +469,7 @@ local function renderAutomationFooter(parent)
 	footerGroup:AddChild(closeButton)
 end
 
+---@param tabGroup AceGUITabGroup
 local function renderAutomationGroup(tabGroup, groupValue)
 	tabGroup:ReleaseChildren()
 
@@ -481,6 +496,7 @@ local function createAutomationConfigWindow()
 		return automationConfigFrame
 	end
 
+	---@type SmartRezAutomationWindow
 	automationConfigFrame = AceGUI:Create("Window")
 	automationConfigFrame:SetTitle(APP_NAME .. " Setup")
 	automationConfigFrame:SetStatusText("")
@@ -496,9 +512,9 @@ local function createAutomationConfigWindow()
 	-- TabGroup works best with an outer Fill layout and an inner ScrollFrame per tab.
 	automationConfigFrame.tabs = AceGUI:Create("TabGroup")
 	automationConfigFrame.tabs:SetLayout("Fill")
-	automationConfigFrame.tabs:SetCallback("OnGroupSelected", function(widget, _, groupValue)
+	automationConfigFrame.tabs:SetCallback("OnGroupSelected", function(_, _, groupValue)
 		automationConfigFrame.selectedGroup = groupValue
-		renderAutomationGroup(widget, groupValue)
+		renderAutomationGroup(automationConfigFrame.tabs, groupValue)
 	end)
 	automationConfigFrame:AddChild(automationConfigFrame.tabs)
 

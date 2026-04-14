@@ -1,4 +1,5 @@
 local SmartRez = _G.SmartRez
+local TSM_API = _G.TSM_API
 local RESTRICTIONS = {
 	mail = {
 		uiName = "MAILING",
@@ -47,15 +48,15 @@ local MACRO_ERROR_THROTTLE = 1
 local ROOT_FRAME_PREFIX = "TSM_FRAME:"
 
 local function getNow()
-	if _G.GetTimePreciseSec then
-		return _G.GetTimePreciseSec()
+	if GetTimePreciseSec then
+		return GetTimePreciseSec()
 	end
-	return _G.GetTime()
+	return GetTime()
 end
 
 local function isUIVisible(uiName)
-	if _G.TSM_API and _G.TSM_API.IsUIVisible and uiName then
-		local ok, isVisible = pcall(_G.TSM_API.IsUIVisible, uiName)
+	if TSM_API and TSM_API.IsUIVisible and uiName then
+		local ok, isVisible = pcall(TSM_API.IsUIVisible, uiName)
 		if ok and isVisible then
 			return true
 		end
@@ -65,7 +66,7 @@ local function isUIVisible(uiName)
 end
 
 local function isMailVisible()
-	return isUIVisible("MAILING") or (_G.MailFrame and _G.MailFrame:IsShown())
+	return isUIVisible("MAILING") or (MailFrame and MailFrame:IsShown())
 end
 
 local function getButtonText(button)
@@ -223,12 +224,12 @@ end
 
 local function discoverVisibleTSMRoots()
 	local roots = {}
-	local frame = _G.EnumerateFrames()
+	local frame = EnumerateFrames()
 	while frame do
 		if frame.IsObjectType and frame:IsObjectType("Frame") and frame.IsShown and frame:IsShown() and frameNameHasPrefix(frame, ROOT_FRAME_PREFIX) and not hasTSMFrameAncestor(frame) then
 			roots[#roots + 1] = frame
 		end
-		frame = _G.EnumerateFrames(frame)
+		frame = EnumerateFrames(frame)
 	end
 	return roots
 end
@@ -241,7 +242,7 @@ local function scheduleUIButtonRefresh(uiName, explicitRoot)
 	end
 
 	refreshPendingByUI[uiName] = true
-	_G.C_Timer.After(0, function()
+	C_Timer.After(0, function()
 		refreshPendingByUI[uiName] = nil
 		if not isUIVisible(uiName) then
 			clearUIButtonIndex(uiName)
@@ -324,7 +325,7 @@ end
 
 warmUIButtonIndex = function(uiName, explicitRoot)
 	scheduleUIButtonRefresh(uiName, explicitRoot)
-	_G.C_Timer.After(0.1, function()
+	C_Timer.After(0.1, function()
 		if isUIVisible(uiName) then
 			scheduleUIButtonRefresh(uiName, explicitRoot)
 		end
@@ -337,17 +338,17 @@ local function refreshUIButtonIndexNow(uiName, explicitRoot)
 	end
 
 	scheduleUIButtonRefresh(uiName, explicitRoot)
-	if refreshPendingByUI[uiName] and not _G.InCombatLockdown() then
+	if refreshPendingByUI[uiName] and not InCombatLockdown() then
 		-- The zero-delay timer will still run this frame; callers retry on the next press.
 	end
 end
 
 local function registerCraftingUICallback()
-	if registeredCraftingCallback or not (_G.TSM_API and _G.TSM_API.RegisterUICallback) then
+	if registeredCraftingCallback or not (TSM_API and TSM_API.RegisterUICallback) then
 		return
 	end
 
-	local ok = pcall(_G.TSM_API.RegisterUICallback, "CRAFTING", "SmartRez:TSMLabelClick", function(visible, frame)
+	local ok = pcall(TSM_API.RegisterUICallback, "CRAFTING", "SmartRez:TSMLabelClick", function(visible, frame)
 		if visible and frame then
 			warmUIButtonIndex("CRAFTING", frame)
 		else

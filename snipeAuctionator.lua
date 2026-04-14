@@ -1,11 +1,13 @@
 local _, SnipeAuctionator = ...
 local SmartRez = _G.SmartRez
+local AuctionatorBuyCommodityFrame = _G.AuctionatorBuyCommodityFrame
+local AuctionatorBuyCommodityFrameTemplateMixin = _G.AuctionatorBuyCommodityFrameTemplateMixin
 
 local BUY_NOW_BUTTON_NAME = "SmartRezAuctionatorBuyNowBtn"
 local BAIT_NOW_BUTTON_NAME = "SmartRezAuctionatorBaitNowBtn"
 
 local function getAuctionatorBuyFrame()
-  local frame = _G.AuctionatorBuyCommodityFrame
+  local frame = AuctionatorBuyCommodityFrame
   if frame and frame.DetailsContainer and frame.DetailsContainer.BuyButton then
     return frame
   end
@@ -286,17 +288,22 @@ function SnipeAuctionator:RegisterEvents()
   self.frame:SetScript("OnEvent", function(_, eventName, eventData)
     if eventName == "AUCTION_HOUSE_THROTTLED_SYSTEM_READY" then
       -- print("SnipeAuctionator: AUCTION_HOUSE_THROTTLED_SYSTEM_READY event received")
-      local buyButton = AuctionatorBuyCommodityFrame.DetailsContainer.BuyButton
+      local frame = getAuctionatorBuyFrame()
+      local buyButton = frame and frame.DetailsContainer and frame.DetailsContainer.BuyButton or nil
       if buyButton then
         buyButton:SetText(AUCTIONATOR_L_BUY_NOW)
         buyButton:Enable()
       end
     elseif eventName == "COMMODITY_SEARCH_RESULTS_UPDATED" then
-      AuctionatorBuyCommodityFrame.SnipeFrame.itemID = eventData
-      -- AuctionatorBuyCommodityFrame.SnipeFrame.price:SetAmount(self.itemMaxPrices[eventData] or 0)
-      AuctionatorBuyCommodityFrame.SnipeFrame.price:SetAmount(PriceMemory[eventData] or 0)
-      AuctionatorBuyCommodityFrame.SnipeFrame.baitPrice:SetAmount(BaitMemory[eventData] or 0)
-      SnipeAuctionator.isInitializing = true
+      local frame = getAuctionatorBuyFrame()
+      local snipeFrame = frame and frame.SnipeFrame or nil
+      if snipeFrame then
+        snipeFrame.itemID = eventData
+        -- snipeFrame.price:SetAmount(self.itemMaxPrices[eventData] or 0)
+        snipeFrame.price:SetAmount(PriceMemory[eventData] or 0)
+        snipeFrame.baitPrice:SetAmount(BaitMemory[eventData] or 0)
+        SnipeAuctionator.isInitializing = true
+      end
     elseif eventName == "AUCTION_HOUSE_SHOW" then
       SnipeAuctionator:HookAuctionatorBuyCommodityFrame()
     end
