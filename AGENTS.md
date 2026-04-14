@@ -1,0 +1,245 @@
+# AGENTS.md
+
+## Project Purpose
+
+`smart_rez` is a Retail-only World of Warcraft addon focused on automation helpers, bindable actions, profession workflows, salvage/craft logic, low-mode utilities, and integrations with external addons such as Auctionator and TradeSkillMaster.
+
+This project targets modern Retail only.
+
+- Treat `World of Warcraft: Midnight` as the active expansion baseline.
+- Do not preserve Classic, Cataclysm Classic, or other legacy compatibility unless explicitly requested.
+- Prefer current Retail APIs and patterns over old compatibility shims.
+
+## Core Expectations
+
+Future agents working in this repo should optimize for:
+
+- No LuaLS squiggles for code we own.
+- Proper typing and annotations where LuaLS inference is weak.
+- Small, reusable, professional modules with clear responsibility boundaries.
+- Minimal churn to unrelated files.
+- Retail-first WoW API usage.
+
+## API Rules
+
+### Prefer modern Retail APIs
+
+Use current namespaced APIs when available.
+
+Examples:
+
+- `C_Item.GetItemInfo(...)` instead of `GetItemInfo(...)`
+- `C_TradeSkillUI.OpenTradeSkill(...)` instead of `_G["C_TradeSkillUI"]["OpenTradeSkill"](...)`
+- `C_Container.GetContainerItemInfo(...)` instead of old bag APIs
+- `Settings.OpenToCategory(...)` instead of `InterfaceOptionsFrame_OpenToCategory(...)`
+
+### Avoid unnecessary `_G`
+
+Do not use `_G[...]` for normal Blizzard globals or stable API tables unless there is a real reason.
+
+Prefer:
+
+- `CreateFrame`
+- `UIParent`
+- `ProfessionsFrame`
+- `C_Timer.After`
+- `EnumerateFrames`
+
+Keep `_G` only for cases like:
+
+- the addon root object: `_G.SmartRez`
+- dynamic global lookups: `_G[action.buttonName]`
+- Blizzard binding label globals that must be string-indexed
+- optional third-party addon globals when first localizing them
+
+## Typing And LuaLS
+
+### Goal
+
+All code we own should be clean under LuaLS. If LuaLS cannot infer a valid pattern, add annotations instead of leaving noise behind.
+
+### Annotation locations
+
+Tooling-only LuaLS annotations live in:
+
+- [Annotations/acegui.lua](/e:/World%20of%20Warcraft/_retail_/Interface/AddOns/smart_rez/Annotations/acegui.lua)
+- [Annotations/addon-globals.lua](/e:/World%20of%20Warcraft/_retail_/Interface/AddOns/smart_rez/Annotations/addon-globals.lua)
+
+Rules:
+
+- Do not add annotation-only files to `smart_rez.toc`.
+- Keep annotation files focused and small.
+- Extend existing annotations before adding duplicate ad hoc casts everywhere.
+
+### When to annotate
+
+Add or refine annotations when:
+
+- AceGUI widget factory returns are too dynamic for LuaLS
+- optional addon globals like `TSM_API` or Auctionator globals need `_G` field typing
+- local custom window objects add fields such as `tabs`, `values`, `enableCheck`, or cached UI handles
+
+### Preferred typing style
+
+- Use `---@class` for shared structured objects
+- Use `---@field` for addon-managed fields
+- Use `---@type` on locals returned from dynamic factories
+- Prefer typing the factory/shim once instead of scattering ignores
+- Do not suppress warnings if a real annotation can explain the shape
+
+## Research Workflow
+
+When implementing or refactoring features, build context from the best available sources in this order:
+
+1. this addon's existing code
+2. nearby addons in the parent AddOns directory
+3. vendored library source in `Libs/`
+4. current web documentation for Retail/Midnight APIs and library behavior
+
+### Local addon references
+
+This addon is usually developed inside the main WoW `AddOns` folder, so the directory one level up is often a strong reference source for real working implementations.
+
+Use that nearby addon ecosystem as a practical reference when:
+
+- looking for modern UI patterns
+- checking how another addon handles a Blizzard system
+- finding examples of Auctionator, TSM, Ace3, or profession UI integrations
+- comparing module layout or event-handling patterns
+
+Search those files intelligently and narrowly.
+
+Prefer:
+
+- targeted text search for API names, mixins, events, XML templates, or frame names
+- reading only the most relevant files instead of broad dumping
+- borrowing patterns, not blindly copying code
+
+## File Organization
+
+Keep runtime files small and grouped by feature.
+
+Current rough organization:
+
+- `core.lua`: addon root, shared state, profession state tracking, core helpers
+- `overrideBindings.lua`: settings registration, popup window, keybind flow
+- `automationConfigUi.lua`: main automation setup UI
+- `craftRecipeCore.lua`: profession crafting action execution
+- `craftSalvageCore.lua`: salvage target selection and salvage execution
+- `craftSalvageConfig.lua`: salvage config storage, recipe selection, whitelist logic
+- `recipeCrafts.lua`, `salvageActions.lua`: feature registrations/data wiring
+- `goldPrinter.lua`: phase-based dispatcher
+- `tsmLabelClick.lua`: TSM label button discovery/click integration
+- `snipeAuctionator.lua`: Auctionator commodity integration
+- `lowmode.lua`: low graphics/UI mode helper
+- `disenchant.lua`: disenchant targeting/action logic
+
+### Preferred module boundaries
+
+When adding or refactoring features:
+
+- split by feature or subsystem, not by arbitrary file size alone
+- separate config/state logic from execution logic
+- separate UI building from business logic
+- keep third-party addon integrations isolated to their own files
+- avoid giant mixed-purpose files
+
+If a file starts holding multiple unrelated responsibilities, split it.
+
+## Third-Party Addon Integrations
+
+### Auctionator
+
+Auctionator is a dependency.
+
+- treat Auctionator globals as optional at load time
+- localize them once if needed
+- nil-check frames/mixins before use
+- annotate optional globals through `Annotations/addon-globals.lua`
+
+### TradeSkillMaster
+
+TSM is optional.
+
+- never assume TSM is loaded
+- guard `TSM_API` usage
+- prefer graceful early returns and user-facing messages over hard failures
+- keep TSM-specific scanning and callbacks inside `tsmLabelClick.lua` or a dedicated future TSM module
+
+## AceGUI Guidance
+
+AceGUI is used for custom popup/setup UI.
+
+- keep AceGUI usage typed
+- prefer reusable helper functions for repeated row/group patterns
+- use `SetLayout` intentionally
+- use `AddChild` on proper container widgets only
+- prefer widget-level APIs like `:IsShown()` over poking `widget.frame` unless needed
+
+If LuaLS struggles with AceGUI factory returns, improve `Annotations/acegui.lua` first.
+
+## Editing Guidelines
+
+- Preserve behavior unless explicitly changing behavior.
+- Make the smallest clean change that solves the issue.
+- Do not add runtime-only compatibility branches for old WoW versions unless requested.
+- Do not reintroduce deprecated APIs when a current Retail equivalent exists.
+- Avoid broad rewrites of files with unrelated user changes.
+
+## TOC And Load Order
+
+When adding runtime Lua modules:
+
+- update `smart_rez.toc` intentionally
+- keep load order valid for dependencies between files
+- do not add annotation-only files to the TOC
+
+## Web Verification Rules
+
+Do not assume recalled knowledge is current for modern WoW addon APIs.
+
+If local source and vendored library code are not enough:
+
+- web search for the current Retail implementation
+- prefer official or primary sources first
+- verify against the most modern live version, currently `World of Warcraft: Midnight`
+- treat older forum posts, TWW-era snippets, and pre-Midnight advice as suspect until confirmed
+
+Use web verification especially for:
+
+- Blizzard API changes or deprecations
+- profession UI behavior
+- Settings UI behavior
+- secure button behavior
+- Auction House and item APIs
+- library usage when repo-local docs are weak
+
+Midnight changed parts of the addon API surface. Many older patterns still work, but future agents should verify instead of assuming.
+
+## Preferred Refactor Direction
+
+Over time, this addon should move toward:
+
+- clearer separation between core state, action execution, config persistence, and UI
+- thinner integration adapters for Auctionator/TSM
+- fewer global assumptions
+- stronger LuaLS annotations instead of diagnostic suppression
+- reusable helpers instead of repeated inline UI/build logic
+
+## What Good Changes Look Like
+
+Good changes in this repo usually:
+
+- replace old API usage with a current Retail API
+- reduce unnecessary `_G` access
+- add precise annotations instead of ignoring diagnostics
+- split large behavior into smaller helpers or modules
+- keep integration-specific logic isolated
+
+## What To Avoid
+
+- Classic-safe fallbacks unless explicitly requested
+- adding annotation files to the runtime TOC
+- using deprecated globals when a `C_` API exists
+- suppressing LuaLS warnings without first attempting to type the code properly
+- mixing UI, persistence, and action execution in a single new file unless the feature is truly tiny
