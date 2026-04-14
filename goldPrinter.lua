@@ -86,10 +86,6 @@ local function getPhaseAction(phase)
   end
 
   if phase == PHASE_DISENCHANT then
-    if SmartRez:IsDisenchantLocked() then
-      return nil, false
-    end
-
     if hasDisenchantWork() then
       local macroText = SmartRez:PrepareDisenchantMacro()
       if macroText then

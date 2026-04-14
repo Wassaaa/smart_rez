@@ -97,7 +97,7 @@ function SmartRez:RebuildCraftRecipeCache()
 
 		if not requiredProfession or self:HasProfession(requiredProfession) then
 			local maxCrafts = config.getMaxCasts and config.getMaxCasts(config) or getMaxCraftsFromReagents(reagents)
-			local numCasts = maxCrafts > 0 and maxCrafts or 0
+			local numCasts = maxCrafts > 0 and 1 or 0
 			local maxAllowedCasts = resolveConfigValue(config, "maxCasts")
 			local minRequiredCasts = resolveConfigValue(config, "minCasts") or 1
 
