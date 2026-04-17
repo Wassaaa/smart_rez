@@ -433,6 +433,33 @@ local function buildAceOptions()
       inline = true,
       order = 20,
       args = {
+        proxyuitoggle = {
+          type = "toggle",
+          name = "Show profession proxy tag",
+          desc = "Shows the small movable rez_proxy tag while the profession proxy backend is active.",
+          order = 5,
+          set = function(_, value)
+            if SmartRez.SetProfessionProxyFrameVisible then
+              SmartRez:SetProfessionProxyFrameVisible(value)
+            end
+          end,
+          get = function()
+            if SmartRez.IsProfessionProxyFrameVisible then
+              return SmartRez:IsProfessionProxyFrameVisible()
+            end
+            return true
+          end,
+        },
+        proxyuireset = {
+          type = "execute",
+          name = "Reset Proxy Tag Position",
+          order = 8,
+          func = function()
+            if SmartRez.ResetProfessionProxyFramePosition then
+              SmartRez:ResetProfessionProxyFramePosition()
+            end
+          end,
+        },
         openpopup = {
           type = "execute",
           name = "Open Popup UI",
@@ -452,7 +479,7 @@ local function buildAceOptions()
         slashhint = {
           type = "description",
           name =
-          "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
+          "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
           order = 25,
           fontSize = "medium",
         },
@@ -524,24 +551,52 @@ function SmartRez:ChatCommand(msg)
   local tsmMailLabel = raw:match("^tsm%s+mail%s+(.+)$")
   local tsmLabel = raw:match("^tsm%s+(.+)$")
   local proxyArg = raw:match("^proxy%s+(.+)$")
+  local proxyUiArg = raw:match("^proxyui%s*(.*)$")
 
   if command == "" or command == "config" then
     openSettingsCategory()
   elseif command == "setup" or command == "items" then
     SmartRez:ShowAutomationConfigWindow()
-  elseif proxyArg then
-    local proxyValue = trim(proxyArg)
+  elseif command == "proxyui" or proxyUiArg then
+    local proxyUiValue = trim(proxyUiArg or ""):lower()
+    if proxyUiValue == "" or proxyUiValue == "toggle" then
+      local visible = not (self.IsProfessionProxyFrameVisible and self:IsProfessionProxyFrameVisible())
+      self:SetProfessionProxyFrameVisible(visible)
+      print("Smart Rez: profession proxy tag " .. (visible and "shown." or "hidden."))
+    elseif proxyUiValue == "on" or proxyUiValue == "show" then
+      self:SetProfessionProxyFrameVisible(true)
+      print("Smart Rez: profession proxy tag shown.")
+    elseif proxyUiValue == "off" or proxyUiValue == "hide" then
+      self:SetProfessionProxyFrameVisible(false)
+      print("Smart Rez: profession proxy tag hidden.")
+    elseif proxyUiValue == "reset" then
+      if self.ResetProfessionProxyFramePosition then
+        self:ResetProfessionProxyFramePosition()
+      end
+      print("Smart Rez: profession proxy tag position reset.")
+    else
+      print("Smart Rez: use /sr proxyui on|off|toggle|reset")
+    end
+  elseif command == "proxy" or proxyArg then
+    local proxyValue = trim(proxyArg or "")
     local proxyCommand = proxyValue:lower()
     if proxyCommand == "off" or proxyCommand == "disable" or proxyCommand == "hide" then
       self:SetProfessionProxyEnabled(false)
       print("Smart Rez: profession proxy disabled.")
     else
-      local professionID = self.GetProfessionProxyProfessionID and self:GetProfessionProxyProfessionID(proxyValue) or nil
-      if professionID then
-        self:OpenProfessionProxy(professionID)
-        print("Smart Rez: opening profession proxy for " .. self:GetProfessionProxyLabel(professionID) .. ".")
+      local professionID
+      if proxyValue == "" then
+        professionID = self.GetDefaultProfessionProxyProfessionID and self:GetDefaultProfessionProxyProfessionID() or nil
       else
-        print("Smart Rez: unknown proxy profession. Try /sr proxy enchanting")
+        professionID = self.GetProfessionProxyProfessionID and self:GetProfessionProxyProfessionID(proxyValue) or nil
+      end
+
+      if professionID then
+        if self:OpenProfessionProxy(professionID) then
+          print("Smart Rez: opening profession proxy for " .. self:GetProfessionProxyLabel(professionID) .. ".")
+        end
+      else
+        print("Smart Rez: no learned proxy profession found. Try /sr proxy enchanting")
       end
     end
   elseif tsmsRestriction and tsmsLabel then
@@ -560,6 +615,6 @@ function SmartRez:ChatCommand(msg)
     toggleOptionsPopup()
   else
     print(
-    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy <profession|off>, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
+    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
   end
 end

@@ -37,6 +37,15 @@ SmartRez.dbDefaults = {
 		characterBank = true,
 		warbank = true,
 	},
+	professionProxy = {
+		visible = true,
+		point = {
+			anchor = "TOP",
+			relativePoint = "TOP",
+			x = 0,
+			y = -80,
+		},
+	},
 	recipeCrafts = {
 		shardcraft = {
 			label = "Shard Craft",

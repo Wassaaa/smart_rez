@@ -8,7 +8,6 @@ local professionProxyInitialized = false
 local professionProxyState = {
 	enabled = false,
 	professionID = nil,
-	pendingUntil = 0,
 }
 
 local PROFESSION_PROXY_IDS = {
@@ -35,7 +34,49 @@ local PROFESSION_PROXY_ORDER = {
 
 local applyProfessionProxyToFrames
 local disableProfessionProxyForClosedBackend
-local _C_IsTradeSkillReady = C_TradeSkillUI and C_TradeSkillUI.IsTradeSkillReady
+
+local function getProfessionProxyConfig()
+	SmartRez:EnsureConfig()
+	local config = SmartRez.db.professionProxy
+	if type(config) ~= "table" then
+		config = {}
+		SmartRez.db.professionProxy = config
+	end
+
+	if type(config.point) ~= "table" then
+		config.point = {}
+	end
+
+	if config.visible == nil then
+		config.visible = true
+	end
+
+	config.point.anchor = config.point.anchor or "TOP"
+	config.point.relativePoint = config.point.relativePoint or config.point.anchor
+	config.point.x = tonumber(config.point.x) or 0
+	config.point.y = tonumber(config.point.y) or -80
+
+	return config
+end
+
+local function isProfessionProxyFrameVisible()
+	return getProfessionProxyConfig().visible ~= false
+end
+
+local function saveProfessionProxyFramePoint(frame)
+	local point, _, relativePoint, x, y = frame:GetPoint(1)
+	local config = getProfessionProxyConfig()
+	config.point.anchor = point or "TOP"
+	config.point.relativePoint = relativePoint or config.point.anchor
+	config.point.x = x or 0
+	config.point.y = y or -80
+end
+
+local function applyProfessionProxyFramePoint(frame)
+	local config = getProfessionProxyConfig()
+	frame:ClearAllPoints()
+	frame:SetPoint(config.point.anchor, UIParent, config.point.relativePoint, config.point.x, config.point.y)
+end
 
 local function getCurrentProfessionID()
 	if not C_TradeSkillUI or not C_TradeSkillUI.GetBaseProfessionInfo then
@@ -43,16 +84,17 @@ local function getCurrentProfessionID()
 	end
 
 	local professionInfo = C_TradeSkillUI.GetBaseProfessionInfo()
-	return professionInfo and professionInfo.professionID or nil
+	local professionID = professionInfo and professionInfo.professionID or nil
+	if type(professionID) ~= "number" or professionID <= 0 then
+		return nil
+	end
+
+	return professionID
 end
 
 local function isProfessionProxyBackendOpen()
 	local currentProfessionID = getCurrentProfessionID()
 	if not currentProfessionID then
-		return false
-	end
-
-	if _C_IsTradeSkillReady and not _C_IsTradeSkillReady() then
 		return false
 	end
 
@@ -63,36 +105,53 @@ local function isProfessionProxyBackendOpen()
 	return true
 end
 
-local function isProfessionProxyPendingOpen()
-	return professionProxyState.enabled
-		and type(professionProxyState.pendingUntil) == "number"
-		and professionProxyState.pendingUntil > GetTime()
-end
-
 local function createProfessionProxyFrame()
 	if professionProxyFrame then
 		return professionProxyFrame
 	end
 
 	professionProxyFrame = CreateFrame("Frame", "SmartRezProfessionProxyFrame", UIParent, "BackdropTemplate")
-	professionProxyFrame:SetSize(240, 72)
-	professionProxyFrame:SetPoint("TOP", UIParent, "TOP", 0, -140)
+	professionProxyFrame:SetSize(88, 20)
 	professionProxyFrame:SetFrameStrata("DIALOG")
 	professionProxyFrame:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		edgeSize = 12,
-		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		edgeSize = 10,
+		insets = { left = 2, right = 2, top = 2, bottom = 2 },
 	})
+	professionProxyFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
+	professionProxyFrame:SetBackdropBorderColor(0.8, 0.66, 0.2, 0.9)
+	professionProxyFrame:SetClampedToScreen(true)
+	professionProxyFrame:SetMovable(true)
+	professionProxyFrame:EnableMouse(true)
+	professionProxyFrame:RegisterForDrag("LeftButton")
+	professionProxyFrame:SetScript("OnDragStart", function(self)
+		if InCombatLockdown() then
+			return
+		end
+
+		self:StartMoving()
+	end)
+	professionProxyFrame:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		saveProfessionProxyFramePoint(self)
+	end)
+	professionProxyFrame:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+		GameTooltip:AddLine("rez_proxy")
+		GameTooltip:AddLine("Left-drag to move", 0.8, 0.8, 0.8)
+		GameTooltip:AddLine("Current: " .. SmartRez:GetProfessionProxyLabel(getCurrentProfessionID() or professionProxyState.professionID), 0.8, 0.8, 0.8)
+		GameTooltip:Show()
+	end)
+	professionProxyFrame:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
 	professionProxyFrame:Hide()
+	applyProfessionProxyFramePoint(professionProxyFrame)
 
-	professionProxyFrame.title = professionProxyFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	professionProxyFrame.title:SetPoint("TOP", professionProxyFrame, "TOP", 0, -12)
-	professionProxyFrame.title:SetText("Smart Rez Profession")
-
-	professionProxyFrame.text = professionProxyFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	professionProxyFrame.text:SetPoint("TOP", professionProxyFrame.title, "BOTTOM", 0, -10)
-	professionProxyFrame.text:SetText("Waiting for profession UI")
+	professionProxyFrame.text = professionProxyFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	professionProxyFrame.text:SetPoint("CENTER", professionProxyFrame, "CENTER", 0, 0)
+	professionProxyFrame.text:SetText("rez_proxy")
 
 	return professionProxyFrame
 end
@@ -102,17 +161,12 @@ local function updateProfessionProxyFrameText()
 		return
 	end
 
-	local backendProfessionID = getCurrentProfessionID() or professionProxyState.professionID
-	local statusText = "Proxy active for "
-	if isProfessionProxyPendingOpen() and not isProfessionProxyBackendOpen() then
-		statusText = "Opening proxy for "
-	end
-
-	professionProxyFrame.text:SetText(statusText .. SmartRez:GetProfessionProxyLabel(backendProfessionID))
+	professionProxyFrame.text:SetText("rez_proxy")
 end
 
 local function hideProfessionProxyFrame()
 	if professionProxyFrame then
+		GameTooltip:Hide()
 		professionProxyFrame:Hide()
 	end
 end
@@ -145,11 +199,7 @@ local function startProfessionProxyTicker()
 			return
 		end
 
-		if isProfessionProxyBackendOpen() then
-			professionProxyState.pendingUntil = 0
-		end
-
-		if not isProfessionProxyBackendOpen() and not isProfessionProxyPendingOpen() then
+		if not isProfessionProxyBackendOpen() then
 			disableProfessionProxyForClosedBackend()
 			return
 		end
@@ -157,7 +207,11 @@ local function startProfessionProxyTicker()
 		suppressProfessionFrames()
 		if professionProxyFrame then
 			updateProfessionProxyFrameText()
-			professionProxyFrame:Show()
+			if isProfessionProxyFrameVisible() then
+				professionProxyFrame:Show()
+			else
+				professionProxyFrame:Hide()
+			end
 		end
 	end)
 end
@@ -175,7 +229,11 @@ local function applyProfessionProxyToFrames()
 	if professionProxyState.enabled then
 		createProfessionProxyFrame()
 		updateProfessionProxyFrameText()
-		professionProxyFrame:Show()
+		if isProfessionProxyFrameVisible() then
+			professionProxyFrame:Show()
+		else
+			professionProxyFrame:Hide()
+		end
 		suppressProfessionFrames()
 		startProfessionProxyTicker()
 	else
@@ -187,7 +245,6 @@ end
 
 function disableProfessionProxyForClosedBackend()
 	professionProxyState.enabled = false
-	professionProxyState.pendingUntil = 0
 	applyProfessionProxyToFrames()
 end
 
@@ -200,15 +257,13 @@ local function ensureProfessionProxyHooks()
 		applyProfessionProxyToFrames()
 	end)
 	ProfessionsFrame:HookScript("OnHide", function()
-		if professionProxyState.enabled and not isProfessionProxyBackendOpen() and not isProfessionProxyPendingOpen() then
+		if professionProxyState.enabled and not isProfessionProxyBackendOpen() then
 			disableProfessionProxyForClosedBackend()
 			return
 		end
 
 		restoreProfessionFrames()
-		if not professionProxyState.enabled then
-			hideProfessionProxyFrame()
-		end
+		hideProfessionProxyFrame()
 	end)
 	professionProxyHooksReady = true
 end
@@ -264,13 +319,30 @@ function SmartRez:IsProfessionProxyReady(professionID)
 	return true
 end
 
+function SmartRez:SetProfessionProxyFrameVisible(visible)
+	getProfessionProxyConfig().visible = visible ~= false
+	applyProfessionProxyToFrames()
+end
+
+function SmartRez:IsProfessionProxyFrameVisible()
+	return isProfessionProxyFrameVisible()
+end
+
+function SmartRez:ResetProfessionProxyFramePosition()
+	local config = getProfessionProxyConfig()
+	config.point.anchor = "TOP"
+	config.point.relativePoint = "TOP"
+	config.point.x = 0
+	config.point.y = -80
+	if professionProxyFrame then
+		applyProfessionProxyFramePoint(professionProxyFrame)
+	end
+end
+
 function SmartRez:SetProfessionProxyEnabled(enabled, professionID)
 	professionProxyState.enabled = enabled == true
 	if professionID then
 		professionProxyState.professionID = professionID
-	end
-	if not professionProxyState.enabled then
-		professionProxyState.pendingUntil = 0
 	end
 
 	applyProfessionProxyToFrames()
@@ -279,19 +351,29 @@ end
 function SmartRez:OpenProfessionProxy(professionID)
 	if not professionID then
 		print("Smart Rez: unknown profession for proxy mode.")
-		return
+		return false
+	end
+
+	if self.HasProfession and not self:HasProfession(professionID) then
+		print("Smart Rez: " .. self:GetProfessionProxyLabel(professionID) .. " is not learned on this character.")
+		return false
 	end
 
 	self:SetProfessionProxyEnabled(true, professionID)
-	professionProxyState.pendingUntil = GetTime() + 1.5
 	if C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill then
 		C_TradeSkillUI.OpenTradeSkill(professionID)
 	end
+
+	return true
 end
 
 function SmartRez:InitializeProfessionProxy()
 	if professionProxyInitialized then
 		return
+	end
+
+	if UIParent:IsEventRegistered("TRADE_SKILL_SHOW") then
+		UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
 	end
 
 	professionProxyWatcher:RegisterEvent("TRADE_SKILL_SHOW")
@@ -300,15 +382,14 @@ function SmartRez:InitializeProfessionProxy()
 	professionProxyWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
 	professionProxyWatcher:SetScript("OnEvent", function(_, eventName)
 		if eventName == "TRADE_SKILL_SHOW" then
+			if not professionProxyState.enabled then
+				UIParent_OnEvent(UIParent, "TRADE_SKILL_SHOW")
+			end
 			ensureProfessionProxyHooks()
-			if professionProxyState.enabled then
-				applyProfessionProxyToFrames()
-			end
+			applyProfessionProxyToFrames()
 		elseif eventName == "TRADE_SKILL_CLOSE" then
-			if professionProxyState.enabled and not isProfessionProxyPendingOpen() then
-				disableProfessionProxyForClosedBackend()
-			end
-		elseif professionProxyState.enabled and not isProfessionProxyBackendOpen() and not isProfessionProxyPendingOpen() then
+			disableProfessionProxyForClosedBackend()
+		elseif professionProxyState.enabled and not isProfessionProxyBackendOpen() then
 			disableProfessionProxyForClosedBackend()
 		end
 	end)
