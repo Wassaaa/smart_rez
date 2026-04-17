@@ -5,6 +5,7 @@ local professionProxyWatcher = CreateFrame("Frame")
 local professionProxyTicker
 local professionProxyHooksReady = false
 local professionProxyInitialized = false
+local professionProxyDisabledMouseFrames = {}
 local professionProxyState = {
 	enabled = false,
 	professionID = nil,
@@ -171,22 +172,62 @@ local function hideProfessionProxyFrame()
 	end
 end
 
-local function restoreProfessionFrames()
-	if not ProfessionsFrame then
+local function restoreProfessionChildMouse()
+	for frame in pairs(professionProxyDisabledMouseFrames) do
+		if frame and frame.EnableMouse then
+			frame:EnableMouse(true)
+		end
+	end
+
+	professionProxyDisabledMouseFrames = {}
+end
+
+local function suppressProfessionChildMouse(frame)
+	if not frame or not frame.GetChildren then
 		return
 	end
 
+	for _, child in ipairs({ frame:GetChildren() }) do
+		if child then
+			if child.IsMouseEnabled and child:IsMouseEnabled() and child.EnableMouse then
+				professionProxyDisabledMouseFrames[child] = true
+				child:EnableMouse(false)
+			end
+
+			suppressProfessionChildMouse(child)
+		end
+	end
+end
+
+local function restoreProfessionFrames()
+	if not ProfessionsFrame then
+		restoreProfessionChildMouse()
+		return
+	end
+
+	restoreProfessionChildMouse()
 	ProfessionsFrame:SetAlpha(1)
 	ProfessionsFrame:EnableMouse(true)
 end
 
-local function suppressProfessionFrames()
+local function suppressProfessionFrames(includeChildren)
 	if not ProfessionsFrame or not ProfessionsFrame:IsShown() then
 		return
 	end
 
 	ProfessionsFrame:SetAlpha(0)
 	ProfessionsFrame:EnableMouse(false)
+	ProfessionsFrame:EnableMouseWheel(false)
+	if includeChildren ~= false then
+		suppressProfessionChildMouse(ProfessionsFrame)
+	end
+	GameTooltip:Hide()
+	if ProfessionsFrame.SetMouseClickEnabled then
+		ProfessionsFrame:SetMouseClickEnabled(false)
+	end
+	if ProfessionsFrame.SetMouseMotionEnabled then
+		ProfessionsFrame:SetMouseMotionEnabled(false)
+	end
 end
 
 local function startProfessionProxyTicker()
@@ -204,7 +245,7 @@ local function startProfessionProxyTicker()
 			return
 		end
 
-		suppressProfessionFrames()
+		suppressProfessionFrames(false)
 		if professionProxyFrame then
 			updateProfessionProxyFrameText()
 			if isProfessionProxyFrameVisible() then
@@ -234,7 +275,7 @@ local function applyProfessionProxyToFrames()
 		else
 			professionProxyFrame:Hide()
 		end
-		suppressProfessionFrames()
+		suppressProfessionFrames(true)
 		startProfessionProxyTicker()
 	else
 		stopProfessionProxyTicker()
