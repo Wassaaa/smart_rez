@@ -2,8 +2,8 @@
   "Lua.workspace.checkThirdParty": false,
   "Lua.runtime.version": "Lua 5.1",
   "Lua.workspace.library": [
-    "~\\.vscode-insiders\\extensions\\ketho.wow-api-0.22.3\\Annotations\\Core",
-    "${workspaceFolder}\\Libs"
+    "${workspaceFolder}\\Libs",
+    "~\\.vscode-insiders\\extensions\\ketho.wow-api-0.22.3\\Annotations\\Core"
   ],
   "Lua.diagnostics.globals": [
     "spawnpoint",
