@@ -145,7 +145,7 @@ local function renderInventorySourcesGroup(parent)
 
 	local help = AceGUI:Create("Label")
 	help:SetFullWidth(true)
-	help:SetText(colorize("A5D6FF", "Choose where Smart Rez looks for crafting and salvage items. Some salvage flows may still require the profession UI to be opened first."))
+	help:SetText(colorize("A5D6FF", "Choose where Smart Rez looks for crafting, salvage, and disenchant items. Some flows may still require the relevant Blizzard UI to be opened first."))
 	group:AddChild(help)
 
 	local summary = AceGUI:Create("Label")

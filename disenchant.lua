@@ -1,5 +1,7 @@
 local SmartRez = _G.SmartRez
 local DEBUG_DISENCHANT = false
+local _C_GetBaseProfessionInfo = C_TradeSkillUI and C_TradeSkillUI.GetBaseProfessionInfo
+local _C_OpenTradeSkill = C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill
 local button
 
 local function debugPrint(...)
@@ -12,18 +14,21 @@ end
 
 local function findDisenchantTarget()
   local whitelist = SmartRez:GetDisenchantWhitelist()
-  for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-    for slot = 1, C_Container.GetContainerNumSlots(bag) do
-      local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
-      if itemInfo and whitelist[itemInfo.itemID] then
-        return {
-          itemID = itemInfo.itemID,
-          bag = bag,
-          slot = slot,
-        }
-      end
+  local target
+
+  SmartRez:ForEachCraftingItemSourceSlot(function(bag, slot)
+    local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
+    if itemInfo and whitelist[itemInfo.itemID] then
+      target = {
+        itemID = itemInfo.itemID,
+        bag = bag,
+        slot = slot,
+      }
+      return true
     end
-  end
+  end)
+
+  return target
 end
 
 local function buildDisenchantMacroText(target)
@@ -43,6 +48,15 @@ function SmartRez:IsDisenchantLocked()
 end
 
 function SmartRez:PrepareDisenchantMacro()
+  local enchantingProfessionID = SmartRez.Profession and SmartRez.Profession.Enchanting
+  if enchantingProfessionID and _C_OpenTradeSkill then
+    local professionInfo = _C_GetBaseProfessionInfo and _C_GetBaseProfessionInfo()
+    if not professionInfo or professionInfo.professionID ~= enchantingProfessionID then
+      _C_OpenTradeSkill(enchantingProfessionID)
+      return nil
+    end
+  end
+
   local target = findDisenchantTarget()
   if not target then
     return nil
