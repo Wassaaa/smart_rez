@@ -507,6 +507,21 @@ function SmartRez:GetPlayerBagContainerIDs()
 	return containerIDs
 end
 
+function SmartRez:GetPlayerOutputBagContainerIDs()
+	local bagIndex = Enum and Enum.BagIndex or {}
+	local containerIDs = {
+		bagIndex.Backpack or BACKPACK_CONTAINER,
+	}
+
+	appendContainerRange(
+		containerIDs,
+		bagIndex.Bag_1 or ((bagIndex.Backpack or BACKPACK_CONTAINER) + 1),
+		getInventoryConstant("NumBagSlots", NUM_BAG_SLOTS or 4)
+	)
+
+	return containerIDs
+end
+
 function SmartRez:GetWarbankContainerIDs()
 	local bagIndex = Enum and Enum.BagIndex or {}
 	local containerIDs = {}
@@ -600,7 +615,7 @@ end
 function SmartRez:GetFreeBagSlots()
 	local freeSlots = 0
 
-	for _, bag in ipairs(self:GetPlayerBagContainerIDs()) do
+	for _, bag in ipairs(self:GetPlayerOutputBagContainerIDs()) do
 		if _C_GetContainerNumFreeSlots then
 			local bagFreeSlots, bagFamily = _C_GetContainerNumFreeSlots(bag)
 			if bagFamily == 0 then
