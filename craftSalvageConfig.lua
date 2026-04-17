@@ -1,7 +1,5 @@
 local SmartRez = _G.SmartRez
 
-local _C_GetContainerNumSlots = C_Container.GetContainerNumSlots
-local _C_GetContainerItemInfo = C_Container.GetContainerItemInfo
 local _C_OpenTradeSkill = C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill
 local _C_GetRecipeInfo = C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo
 local _C_GetRecipeSchematic = C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic
@@ -137,13 +135,14 @@ end
 local function getResolvedRecipeDetails(profession, recipeConfig)
 	local label = getResolvedRecipeLabel(profession, recipeConfig)
 	local requiredStack = recipeConfig.requiredStack or 1
+	local hasConfiguredRequiredStack = recipeConfig.requiredStack ~= nil
 	local currentState = SmartRez.currentProfessionState
 
-	if currentState and currentState.recipeID == recipeConfig.recipeID and currentState.requiredProfession == profession.professionID then
+	if not hasConfiguredRequiredStack and currentState and currentState.recipeID == recipeConfig.recipeID and currentState.requiredProfession == profession.professionID then
 		requiredStack = getRequiredStackFromReagents(currentState.reagents)
 	end
 
-	if _C_GetRecipeSchematic then
+	if not hasConfiguredRequiredStack and _C_GetRecipeSchematic then
 		local recipeSchematic = _C_GetRecipeSchematic(recipeConfig.recipeID, false)
 		if recipeSchematic then
 			requiredStack = getRequiredStackFromSchematic(recipeSchematic) or requiredStack
@@ -353,20 +352,5 @@ function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
 end
 
 function SmartRez:GetBagItemCount(itemID)
-	if not itemID then
-		return 0
-	end
-
-	local itemCount = 0
-
-	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, _C_GetContainerNumSlots(bag) do
-			local itemInfo = _C_GetContainerItemInfo(bag, slot)
-			if itemInfo and itemInfo.itemID == itemID then
-				itemCount = itemCount + (itemInfo.stackCount or 0)
-			end
-		end
-	end
-
-	return itemCount
+	return self:GetCraftingItemCount(itemID)
 end

@@ -5,7 +5,6 @@ local _C_GetBaseProfessionInfo = C_TradeSkillUI.GetBaseProfessionInfo
 local _C_OpenTradeSkill = C_TradeSkillUI.OpenTradeSkill
 local _C_OpenRecipe = C_TradeSkillUI.OpenRecipe
 local _C_GetRecipeInfo = C_TradeSkillUI.GetRecipeInfo
-local _C_Item_GetItemCount = C_Item and C_Item.GetItemCount
 local _GetTime = GetTime
 local _UnitCastingInfo = UnitCastingInfo
 local _floor = math.floor
@@ -59,10 +58,7 @@ end
 
 local function getAvailableReagentCount(reagent)
 	if reagent.itemID then
-		if _C_Item_GetItemCount then
-			return _C_Item_GetItemCount(reagent.itemID, false, false, false, false)
-		end
-		return 0
+		return SmartRez:GetCraftingItemCount(reagent.itemID)
 	end
 
 	if reagent.currencyID then

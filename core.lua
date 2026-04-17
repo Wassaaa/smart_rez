@@ -4,6 +4,9 @@ local C_TradeSkillUI = C_TradeSkillUI
 local C_Container = C_Container
 local GetProfessions = GetProfessions
 local GetProfessionInfo = GetProfessionInfo
+local _C_GetContainerNumSlots = C_Container and C_Container.GetContainerNumSlots
+local _C_GetContainerItemInfo = C_Container and C_Container.GetContainerItemInfo
+local _C_GetContainerNumFreeSlots = C_Container and C_Container.GetContainerNumFreeSlots
 SmartRez.appName = "Smart Rez"
 SmartRez.bindableActions = {}
 SmartRez.craftSalvageProfessions = {}
@@ -29,6 +32,11 @@ SmartRez.dbDefaults = {
 	disenchantWhitelist = {},
 	salvageWhitelists = {},
 	salvageSelections = {},
+	inventorySources = {
+		playerBags = true,
+		characterBank = true,
+		warbank = true,
+	},
 	recipeCrafts = {
 		shardcraft = {
 			label = "Shard Craft",
@@ -92,6 +100,48 @@ local function mergeDefaults(target, defaults)
 		elseif target[key] == nil then
 			target[key] = value
 		end
+	end
+end
+
+local function normalizeInventorySources(inventorySources)
+	local normalized = copyTable(inventorySources or {})
+	local hasEnabledSource = false
+
+	for sourceKey, defaultValue in pairs(SmartRez.dbDefaults.inventorySources or {}) do
+		if normalized[sourceKey] == nil then
+			normalized[sourceKey] = defaultValue
+		end
+
+		if normalized[sourceKey] == true then
+			hasEnabledSource = true
+		end
+	end
+
+	if not hasEnabledSource then
+		normalized.playerBags = true
+	end
+
+	return normalized
+end
+
+local function getInventoryConstant(name, fallback)
+	local inventoryConstants = Constants and Constants.InventoryConstants
+	local value = inventoryConstants and inventoryConstants[name]
+
+	if type(value) == "number" then
+		return value
+	end
+
+	return fallback
+end
+
+local function appendContainerRange(containerIDs, firstContainerID, count)
+	if type(firstContainerID) ~= "number" or type(count) ~= "number" or count <= 0 then
+		return
+	end
+
+	for containerID = firstContainerID, (firstContainerID + count - 1) do
+		containerIDs[#containerIDs + 1] = containerID
 	end
 end
 
@@ -162,6 +212,21 @@ end
 function SmartRez:SetDisenchantWhitelist(whitelist)
 	self:EnsureConfig()
 	self.db.disenchantWhitelist = whitelist or {}
+end
+
+function SmartRez:GetInventorySources()
+	self:EnsureConfig()
+	self.db.inventorySources = normalizeInventorySources(self.db.inventorySources)
+	return self.db.inventorySources
+end
+
+function SmartRez:SetInventorySources(inventorySources)
+	self:EnsureConfig()
+	self.db.inventorySources = normalizeInventorySources(inventorySources or self.db.inventorySources)
+	self:HandleInventoryChanged()
+	if self.RefreshViews then
+		self:RefreshViews()
+	end
 end
 
 function SmartRez:GetRecipeCraftConfig(configKey)
@@ -423,18 +488,127 @@ function SmartRez:MarkCraftRecipeCacheDirty()
 	self.craftRecipeCacheDirty = true
 end
 
+function SmartRez:GetPlayerBagContainerIDs()
+	local bagIndex = Enum and Enum.BagIndex or {}
+	local containerIDs = {
+		bagIndex.Backpack or BACKPACK_CONTAINER,
+	}
+
+	appendContainerRange(
+		containerIDs,
+		bagIndex.Bag_1 or ((bagIndex.Backpack or BACKPACK_CONTAINER) + 1),
+		getInventoryConstant("NumBagSlots", NUM_BAG_SLOTS or 4)
+	)
+
+	if type(bagIndex.ReagentBag) == "number" and getInventoryConstant("NumReagentBagSlots", 0) > 0 then
+		containerIDs[#containerIDs + 1] = bagIndex.ReagentBag
+	end
+
+	return containerIDs
+end
+
+function SmartRez:GetWarbankContainerIDs()
+	local bagIndex = Enum and Enum.BagIndex or {}
+	local containerIDs = {}
+
+	appendContainerRange(
+		containerIDs,
+		bagIndex.AccountBankTab_1,
+		getInventoryConstant("NumAccountBankSlots", 0)
+	)
+
+	return containerIDs
+end
+
+function SmartRez:GetCharacterBankContainerIDs()
+	local bagIndex = Enum and Enum.BagIndex or {}
+	local containerIDs = {}
+
+	appendContainerRange(
+		containerIDs,
+		bagIndex.CharacterBankTab_1,
+		getInventoryConstant("NumCharacterBankSlots", 0)
+	)
+
+	return containerIDs
+end
+
+function SmartRez:GetCraftingItemSourceContainerIDs()
+	local inventorySources = self:GetInventorySources()
+	local containerIDs = {}
+
+	local function appendContainers(sourceContainerIDs)
+		for _, containerID in ipairs(sourceContainerIDs) do
+			containerIDs[#containerIDs + 1] = containerID
+		end
+	end
+
+	if inventorySources.playerBags ~= false then
+		appendContainers(self:GetPlayerBagContainerIDs())
+	end
+
+	if inventorySources.characterBank == true then
+		appendContainers(self:GetCharacterBankContainerIDs())
+	end
+
+	if inventorySources.warbank == true then
+		appendContainers(self:GetWarbankContainerIDs())
+	end
+
+	return containerIDs
+end
+
+function SmartRez:ForEachContainerSlot(containerIDs, callback)
+	for _, bag in ipairs(containerIDs or {}) do
+		local numSlots = _C_GetContainerNumSlots and _C_GetContainerNumSlots(bag) or 0
+
+		for slot = 1, numSlots do
+			if callback(bag, slot) then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+function SmartRez:ForEachCraftingItemSourceSlot(callback)
+	return self:ForEachContainerSlot(self:GetCraftingItemSourceContainerIDs(), callback)
+end
+
+function SmartRez:ForEachPlayerBagSlot(callback)
+	return self:ForEachContainerSlot(self:GetPlayerBagContainerIDs(), callback)
+end
+
+function SmartRez:GetCraftingItemCount(itemID)
+	if not itemID then
+		return 0
+	end
+
+	local itemCount = 0
+
+	self:ForEachCraftingItemSourceSlot(function(bag, slot)
+		local itemInfo = _C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)
+		if itemInfo and itemInfo.itemID == itemID then
+			itemCount = itemCount + (itemInfo.stackCount or 0)
+		end
+	end)
+
+	return itemCount
+end
+
 function SmartRez:GetFreeBagSlots()
 	local freeSlots = 0
 
-	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
-		if C_Container.GetContainerNumFreeSlots then
-			local bagFreeSlots, bagFamily = C_Container.GetContainerNumFreeSlots(bag)
+	for _, bag in ipairs(self:GetPlayerBagContainerIDs()) do
+		if _C_GetContainerNumFreeSlots then
+			local bagFreeSlots, bagFamily = _C_GetContainerNumFreeSlots(bag)
 			if bagFamily == 0 then
 				freeSlots = freeSlots + (bagFreeSlots or 0)
 			end
 		else
-			for slot = 1, C_Container.GetContainerNumSlots(bag) do
-				if not C_Container.GetContainerItemInfo(bag, slot) then
+			for slot = 1, (_C_GetContainerNumSlots and _C_GetContainerNumSlots(bag) or 0) do
+				if not (_C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)) then
 					freeSlots = freeSlots + 1
 				end
 			end

@@ -115,6 +115,75 @@ local function createCursorItemButton(addItemFunc, missingItemMessage)
 	return button
 end
 
+local function getInventorySourcesSummary()
+	local inventorySources = SmartRez:GetInventorySources()
+	local enabledSources = {}
+
+	if inventorySources.playerBags ~= false then
+		enabledSources[#enabledSources + 1] = "bags"
+	end
+
+	if inventorySources.characterBank == true then
+		enabledSources[#enabledSources + 1] = "bank"
+	end
+
+	if inventorySources.warbank == true then
+		enabledSources[#enabledSources + 1] = "warbank"
+	end
+
+	return table.concat(enabledSources, ", ")
+end
+
+---@param parent AceGUIContainer
+local function renderInventorySourcesGroup(parent)
+	local inventorySources = SmartRez:GetInventorySources()
+	local group = AceGUI:Create("InlineGroup")
+	group:SetTitle("Inventory Sources")
+	group:SetFullWidth(true)
+	group:SetLayout("List")
+	parent:AddChild(group)
+
+	local help = AceGUI:Create("Label")
+	help:SetFullWidth(true)
+	help:SetText(colorize("A5D6FF", "Choose where Smart Rez looks for crafting and salvage items. Some salvage flows may still require the profession UI to be opened first."))
+	group:AddChild(help)
+
+	local summary = AceGUI:Create("Label")
+	summary:SetFullWidth(true)
+	summary:SetText(colorize("79C0FF", "Currently using: " .. getInventorySourcesSummary()))
+	group:AddChild(summary)
+
+	local function setSource(sourceKey, enabled)
+		local updatedSources = SmartRez:GetInventorySources()
+		updatedSources[sourceKey] = enabled == true
+		SmartRez:SetInventorySources(updatedSources)
+	end
+
+	local bagCheck = AceGUI:Create("CheckBox")
+	bagCheck:SetLabel("Use player bags")
+	bagCheck:SetValue(inventorySources.playerBags ~= false)
+	bagCheck:SetCallback("OnValueChanged", function(_, _, value)
+		setSource("playerBags", value)
+	end)
+	group:AddChild(bagCheck)
+
+	local bankCheck = AceGUI:Create("CheckBox")
+	bankCheck:SetLabel("Use character bank")
+	bankCheck:SetValue(inventorySources.characterBank == true)
+	bankCheck:SetCallback("OnValueChanged", function(_, _, value)
+		setSource("characterBank", value)
+	end)
+	group:AddChild(bankCheck)
+
+	local warbankCheck = AceGUI:Create("CheckBox")
+	warbankCheck:SetLabel("Use warbank")
+	warbankCheck:SetValue(inventorySources.warbank == true)
+	warbankCheck:SetCallback("OnValueChanged", function(_, _, value)
+		setSource("warbank", value)
+	end)
+	group:AddChild(warbankCheck)
+end
+
 ---@param parent AceGUIContainer
 local function addWhitelistRows(parent, itemIDs, removeItemFunc)
 	for _, itemID in ipairs(itemIDs) do
@@ -132,7 +201,7 @@ local function addWhitelistRows(parent, itemIDs, removeItemFunc)
 
 		local countLabel = AceGUI:Create("Label")
 		countLabel:SetWidth(BAG_COUNT_WIDTH)
-		countLabel:SetText(colorize("79C0FF", "Bags: " .. SmartRez:GetBagItemCount(itemID)))
+		countLabel:SetText(colorize("79C0FF", "Stored: " .. SmartRez:GetBagItemCount(itemID)))
 		row:AddChild(countLabel)
 
 		row:AddChild(createHorizontalSpacer(ROW_SPACING))
@@ -325,6 +394,7 @@ end
 
 ---@param parent AceGUIContainer
 local function renderGoldPrinterTab(parent)
+	renderInventorySourcesGroup(parent)
 	renderDisenchantWhitelist(parent)
 	renderRecipeCraftGroup(parent)
 	renderGoldPrinterGroup(parent)
@@ -432,9 +502,11 @@ local function renderCraftSalvageTab(parent, profession)
 			target.itemInfo.stackCount or 0
 		))
 	else
-		targetLabel:SetText(colorize("FFB86C", "Target: ") .. "none in bags")
+		targetLabel:SetText(colorize("FFB86C", "Target: ") .. "none in configured storage")
 	end
 	summary:AddChild(targetLabel)
+
+	renderInventorySourcesGroup(parent)
 
 	renderItemWhitelistGroup(parent, {
 		title = "Allowed Items",

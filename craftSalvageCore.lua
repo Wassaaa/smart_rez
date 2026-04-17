@@ -1,9 +1,11 @@
 local SmartRez = _G.SmartRez
 
-local _C_GetContainerNumSlots = C_Container.GetContainerNumSlots
 local _C_GetContainerItemInfo = C_Container.GetContainerItemInfo
 local _C_SortBags = C_Container.SortBags
 local _C_TradeSkillUI_CraftSalvage = C_TradeSkillUI.CraftSalvage
+local _C_GetBaseProfessionInfo = C_TradeSkillUI.GetBaseProfessionInfo
+local _C_OpenTradeSkill = C_TradeSkillUI.OpenTradeSkill
+local _C_OpenRecipe = C_TradeSkillUI.OpenRecipe
 local _GetTime = GetTime
 local _ItemLocation = ItemLocation
 
@@ -21,34 +23,32 @@ function SmartRez:RebuildCraftSalvageCache()
 		end
 	end
 
-	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, _C_GetContainerNumSlots(bag) do
-			local itemInfo = _C_GetContainerItemInfo(bag, slot)
-			if itemInfo then
-				for professionKey, professionState in pairs(activeProfessions) do
-					local selection = professionState.selection
-					local whitelist = professionState.whitelist
+	self:ForEachCraftingItemSourceSlot(function(bag, slot)
+		local itemInfo = _C_GetContainerItemInfo(bag, slot)
+		if itemInfo then
+			for professionKey, professionState in pairs(activeProfessions) do
+				local selection = professionState.selection
+				local whitelist = professionState.whitelist
 
-					if whitelist[itemInfo.itemID] and itemInfo.stackCount >= selection.requiredStack then
-						local existingTarget = cache[professionKey]
-						local shouldReplace = existingTarget == nil
+				if whitelist[itemInfo.itemID] and itemInfo.stackCount >= selection.requiredStack then
+					local existingTarget = cache[professionKey]
+					local shouldReplace = existingTarget == nil
 
-						if not shouldReplace and selection.preferLargestStack and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
-							shouldReplace = true
-						end
+					if not shouldReplace and selection.preferLargestStack and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
+						shouldReplace = true
+					end
 
-						if shouldReplace then
-							cache[professionKey] = {
-								bag = bag,
-								slot = slot,
-								itemInfo = itemInfo,
-							}
-						end
+					if shouldReplace then
+						cache[professionKey] = {
+							bag = bag,
+							slot = slot,
+							itemInfo = itemInfo,
+						}
 					end
 				end
 			end
 		end
-	end
+	end)
 
 	self.craftSalvageCache = cache
 	self.craftSalvageCacheDirty = false
@@ -85,6 +85,19 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 		local selection = SmartRez:GetCraftSalvageSelection(config.key)
 		if not selection or not selection.recipeID then
 			return
+		end
+
+		local openTradeSkillID = selection.openTradeSkillID or config.professionID
+		if openTradeSkillID then
+			local professionInfo = _C_GetBaseProfessionInfo and _C_GetBaseProfessionInfo()
+			if not professionInfo or professionInfo.professionID ~= openTradeSkillID then
+				_C_OpenTradeSkill(openTradeSkillID)
+				return
+			end
+		end
+
+		if _C_OpenRecipe then
+			_C_OpenRecipe(selection.recipeID)
 		end
 
 		local target = SmartRez:GetCraftSalvageTarget(config.key)
