@@ -16,6 +16,7 @@ automationConfigUi.lua
 craftSalvageCore.lua
 craftRecipeCore.lua
 disenchant.lua
+warbankGrab.lua
 salvageActions.lua
 goldPrinter.lua
 recipeCrafts.lua

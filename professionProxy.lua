@@ -8,6 +8,7 @@ local professionProxyInitialized = false
 local professionProxyState = {
 	enabled = false,
 	professionID = nil,
+	pendingUntil = 0,
 }
 
 local PROFESSION_PROXY_IDS = {
@@ -21,8 +22,20 @@ local PROFESSION_PROXY_IDS = {
 	tailoring = SmartRez.Profession.Tailoring,
 }
 
+local PROFESSION_PROXY_ORDER = {
+	SmartRez.Profession.Enchanting,
+	SmartRez.Profession.Engineering,
+	SmartRez.Profession.Inscription,
+	SmartRez.Profession.Jewelcrafting,
+	SmartRez.Profession.Alchemy,
+	SmartRez.Profession.Tailoring,
+	SmartRez.Profession.Blacksmithing,
+	SmartRez.Profession.Cooking,
+}
+
 local applyProfessionProxyToFrames
 local disableProfessionProxyForClosedBackend
+local _C_IsTradeSkillReady = C_TradeSkillUI and C_TradeSkillUI.IsTradeSkillReady
 
 local function getCurrentProfessionID()
 	if not C_TradeSkillUI or not C_TradeSkillUI.GetBaseProfessionInfo then
@@ -39,11 +52,21 @@ local function isProfessionProxyBackendOpen()
 		return false
 	end
 
+	if _C_IsTradeSkillReady and not _C_IsTradeSkillReady() then
+		return false
+	end
+
 	if professionProxyState.professionID and currentProfessionID ~= professionProxyState.professionID then
 		return false
 	end
 
 	return true
+end
+
+local function isProfessionProxyPendingOpen()
+	return professionProxyState.enabled
+		and type(professionProxyState.pendingUntil) == "number"
+		and professionProxyState.pendingUntil > GetTime()
 end
 
 local function createProfessionProxyFrame()
@@ -80,7 +103,12 @@ local function updateProfessionProxyFrameText()
 	end
 
 	local backendProfessionID = getCurrentProfessionID() or professionProxyState.professionID
-	professionProxyFrame.text:SetText("Proxy active for " .. SmartRez:GetProfessionProxyLabel(backendProfessionID))
+	local statusText = "Proxy active for "
+	if isProfessionProxyPendingOpen() and not isProfessionProxyBackendOpen() then
+		statusText = "Opening proxy for "
+	end
+
+	professionProxyFrame.text:SetText(statusText .. SmartRez:GetProfessionProxyLabel(backendProfessionID))
 end
 
 local function hideProfessionProxyFrame()
@@ -117,7 +145,11 @@ local function startProfessionProxyTicker()
 			return
 		end
 
-		if not isProfessionProxyBackendOpen() then
+		if isProfessionProxyBackendOpen() then
+			professionProxyState.pendingUntil = 0
+		end
+
+		if not isProfessionProxyBackendOpen() and not isProfessionProxyPendingOpen() then
 			disableProfessionProxyForClosedBackend()
 			return
 		end
@@ -155,6 +187,7 @@ end
 
 function disableProfessionProxyForClosedBackend()
 	professionProxyState.enabled = false
+	professionProxyState.pendingUntil = 0
 	applyProfessionProxyToFrames()
 end
 
@@ -167,13 +200,15 @@ local function ensureProfessionProxyHooks()
 		applyProfessionProxyToFrames()
 	end)
 	ProfessionsFrame:HookScript("OnHide", function()
-		if professionProxyState.enabled and not isProfessionProxyBackendOpen() then
+		if professionProxyState.enabled and not isProfessionProxyBackendOpen() and not isProfessionProxyPendingOpen() then
 			disableProfessionProxyForClosedBackend()
 			return
 		end
 
 		restoreProfessionFrames()
-		hideProfessionProxyFrame()
+		if not professionProxyState.enabled then
+			hideProfessionProxyFrame()
+		end
 	end)
 	professionProxyHooksReady = true
 end
@@ -202,10 +237,40 @@ function SmartRez:GetProfessionProxyProfessionID(value)
 	return PROFESSION_PROXY_IDS[trimmed]
 end
 
+function SmartRez:GetDefaultProfessionProxyProfessionID()
+	local currentProfessionID = getCurrentProfessionID()
+	if currentProfessionID then
+		return currentProfessionID
+	end
+
+	for _, professionID in ipairs(PROFESSION_PROXY_ORDER) do
+		if self:HasProfession(professionID) then
+			return professionID
+		end
+	end
+
+	return nil
+end
+
+function SmartRez:IsProfessionProxyReady(professionID)
+	if not isProfessionProxyBackendOpen() then
+		return false
+	end
+
+	if professionID and getCurrentProfessionID() ~= professionID then
+		return false
+	end
+
+	return true
+end
+
 function SmartRez:SetProfessionProxyEnabled(enabled, professionID)
 	professionProxyState.enabled = enabled == true
 	if professionID then
 		professionProxyState.professionID = professionID
+	end
+	if not professionProxyState.enabled then
+		professionProxyState.pendingUntil = 0
 	end
 
 	applyProfessionProxyToFrames()
@@ -218,6 +283,7 @@ function SmartRez:OpenProfessionProxy(professionID)
 	end
 
 	self:SetProfessionProxyEnabled(true, professionID)
+	professionProxyState.pendingUntil = GetTime() + 1.5
 	if C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill then
 		C_TradeSkillUI.OpenTradeSkill(professionID)
 	end
@@ -228,24 +294,21 @@ function SmartRez:InitializeProfessionProxy()
 		return
 	end
 
-	if UIParent:IsEventRegistered("TRADE_SKILL_SHOW") then
-		UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
-	end
-
 	professionProxyWatcher:RegisterEvent("TRADE_SKILL_SHOW")
 	professionProxyWatcher:RegisterEvent("TRADE_SKILL_CLOSE")
 	professionProxyWatcher:RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED")
 	professionProxyWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
 	professionProxyWatcher:SetScript("OnEvent", function(_, eventName)
 		if eventName == "TRADE_SKILL_SHOW" then
-			if not professionProxyState.enabled then
-				UIParent_OnEvent(UIParent, "TRADE_SKILL_SHOW")
-			end
 			ensureProfessionProxyHooks()
-			applyProfessionProxyToFrames()
+			if professionProxyState.enabled then
+				applyProfessionProxyToFrames()
+			end
 		elseif eventName == "TRADE_SKILL_CLOSE" then
-			disableProfessionProxyForClosedBackend()
-		elseif professionProxyState.enabled and not isProfessionProxyBackendOpen() then
+			if professionProxyState.enabled and not isProfessionProxyPendingOpen() then
+				disableProfessionProxyForClosedBackend()
+			end
+		elseif professionProxyState.enabled and not isProfessionProxyBackendOpen() and not isProfessionProxyPendingOpen() then
 			disableProfessionProxyForClosedBackend()
 		end
 	end)
