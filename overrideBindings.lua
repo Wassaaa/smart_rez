@@ -501,6 +501,10 @@ function SmartRez:OnInitialize()
     self:RefreshKnownProfessions()
   end
 
+  if self.InitializeProfessionProxy then
+    self:InitializeProfessionProxy()
+  end
+
   initializeDB()
   applyOverrideBindings()
 
@@ -519,11 +523,27 @@ function SmartRez:ChatCommand(msg)
   local tsmsRestriction, tsmsLabel = raw:match("^tsms%s+(%S+)%s+(.+)$")
   local tsmMailLabel = raw:match("^tsm%s+mail%s+(.+)$")
   local tsmLabel = raw:match("^tsm%s+(.+)$")
+  local proxyArg = raw:match("^proxy%s+(.+)$")
 
   if command == "" or command == "config" then
     openSettingsCategory()
   elseif command == "setup" or command == "items" then
     SmartRez:ShowAutomationConfigWindow()
+  elseif proxyArg then
+    local proxyValue = trim(proxyArg)
+    local proxyCommand = proxyValue:lower()
+    if proxyCommand == "off" or proxyCommand == "disable" or proxyCommand == "hide" then
+      self:SetProfessionProxyEnabled(false)
+      print("Smart Rez: profession proxy disabled.")
+    else
+      local professionID = self.GetProfessionProxyProfessionID and self:GetProfessionProxyProfessionID(proxyValue) or nil
+      if professionID then
+        self:OpenProfessionProxy(professionID)
+        print("Smart Rez: opening profession proxy for " .. self:GetProfessionProxyLabel(professionID) .. ".")
+      else
+        print("Smart Rez: unknown proxy profession. Try /sr proxy enchanting")
+      end
+    end
   elseif tsmsRestriction and tsmsLabel then
     self:ClickVisibleTSMButton(tsmsLabel, tsmsRestriction)
   elseif tsmMailLabel then
@@ -540,6 +560,6 @@ function SmartRez:ChatCommand(msg)
     toggleOptionsPopup()
   else
     print(
-    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
+    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy <profession|off>, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
   end
 end

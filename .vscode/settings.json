@@ -33,11 +33,11 @@
     "AuctionatorBuyCommodityFrame",
     "AuctionatorBuyCommodityFrameTemplateMixin",
     "AUCTIONATOR_L_BUY_NOW",
-    "TSM_API"
+    "TSM_API",
+    "UIParent_OnEvent",
+    "ProfessionsBookFrame"
   ],
-  "Lua.diagnostics.disable": [
-    "assign-type-mismatch"
-  ],
+  "Lua.diagnostics.disable": ["assign-type-mismatch"],
   "Lua.runtime.builtin": {
     "basic": "disable",
     "debug": "disable",

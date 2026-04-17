@@ -9,6 +9,7 @@
 ## SavedVariablesPerCharacter: SmartRezDB
 embeds.xml
 core.lua
+professionProxy.lua
 craftSalvageConfig.lua
 overrideBindings.lua
 automationConfigUi.lua
