@@ -52,6 +52,67 @@ Keep `_G` only for cases like:
 - Blizzard binding label globals that must be string-indexed
 - optional third-party addon globals when first localizing them
 
+## Secure Actions And Profession Access
+
+Retail secure-button behavior and profession-window access are easy places to regress this addon. Follow these rules:
+
+- Do not call `C_TradeSkillUI.OpenTradeSkill(...)` from passive refresh paths such as inventory scans, cache rebuilds, `Refresh...()` helpers, or config setters.
+- Passive refresh code may check readiness, but opening protected UI must happen only from an actual user click path.
+- When remote crafting sources such as character bank or warbank depend on the profession backend being open, use the profession-proxy helpers in `professionProxy.lua`:
+  - `SmartRez:IsProfessionProxyReady(professionID)`
+  - `SmartRez:OpenProfessionProxy(professionID)`
+- Prefer the existing profession proxy flow over direct one-off profession-opening logic in feature modules.
+- If remote storage cannot be scanned until the profession backend is open, treat that as a valid "priming" state rather than "no work exists".
+
+### Disenchant-specific secure pattern
+
+`disenchant.lua` now follows a stricter Retail-safe pattern and future edits should preserve it unless explicitly replacing it end-to-end:
+
+- Keep the bindable button macro-based.
+- Use hidden secure helper buttons for spell targeting / verification rather than rebuilding unrelated logic elsewhere.
+- Keep the spam-safety state machine event-driven:
+  - `UNIT_SPELLCAST_START`
+  - `UNIT_SPELLCAST_SUCCEEDED`
+  - `UNIT_SPELLCAST_STOP`
+  - `ITEM_LOCKED`
+  - `ITEM_UNLOCKED`
+  - `ITEM_PUSH`
+  - `LOOT_READY`
+  - `LOOT_OPENED`
+  - `LOOT_CLOSED`
+- Do not re-enable disenchant during the cast-success / loot handoff window.
+- Preserve the current fast-loot flow if touching disenchant completion timing.
+
+### Click phase handling
+
+Some secure buttons in this addon intentionally register both key-down and key-up phases.
+
+- It is acceptable to keep `RegisterForClicks("AnyUp", "AnyDown")` when the feature needs to respect the user's `ActionButtonUseKeyDown` setting.
+- If both phases are registered, gate addon logic so work only happens on the active phase instead of both.
+- Do not "fix" duplicate logs or duplicate macro prep by removing one phase unless the feature truly does not need to respect both click models.
+
+## Inventory Source Behavior
+
+`inventorySources` is shared infrastructure for crafting, salvage, and disenchant workflows.
+
+- Prefer scanning through the shared helpers in `core.lua`:
+  - `GetCraftingItemSourceContainerIDs()`
+  - `ForEachCraftingItemSourceSlot(...)`
+  - `ForEachPlayerBagSlot(...)`
+- Be careful when changing source scans for disenchant. A player-bag-only scan may appear to fix timing bugs while silently breaking bank/warbank behavior.
+- If a workflow needs different behavior for local vs remote sources, separate readiness / access logic from target selection logic rather than forking the whole workflow.
+
+## Debug Output
+
+Debug logging should follow a shared addon pattern rather than ad hoc file-local toggles.
+
+- Use the shared debug setting in `core.lua`:
+  - `SmartRez:GetDebugEnabled()`
+  - `SmartRez:SetDebugEnabled(value)`
+- New module debug prints should stay lightweight and high-signal.
+- Prefer feature-prefixed messages such as `SmartRez DE: ...`.
+- Avoid noisy per-refresh or per-frame spam unless actively narrowing a bug and explicitly requested.
+
 ## Typing And LuaLS
 
 ### Goal
@@ -235,6 +296,7 @@ Good changes in this repo usually:
 - add precise annotations instead of ignoring diagnostics
 - split large behavior into smaller helpers or modules
 - keep integration-specific logic isolated
+- preserve working secure-button timing and profession-proxy flows when touching automation features
 
 ## What To Avoid
 
@@ -243,3 +305,6 @@ Good changes in this repo usually:
 - using deprecated globals when a `C_` API exists
 - suppressing LuaLS warnings without first attempting to type the code properly
 - mixing UI, persistence, and action execution in a single new file unless the feature is truly tiny
+- opening protected profession UI from passive refresh or inventory change handlers
+- assuming "no scanned target" means "no work exists" when remote inventory sources may still need backend access
+- replacing a stable event-driven state machine with ad hoc timing delays or broad repeated checks
