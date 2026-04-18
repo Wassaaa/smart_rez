@@ -491,7 +491,7 @@ local function buildAceOptions()
         slashhint = {
           type = "description",
           name =
-          "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
+          "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
           order = 25,
           fontSize = "medium",
         },
@@ -564,6 +564,7 @@ function SmartRez:ChatCommand(msg)
   local tsmLabel = raw:match("^tsm%s+(.+)$")
   local proxyArg = raw:match("^proxy%s+(.+)$")
   local proxyUiArg = raw:match("^proxyui%s*(.*)$")
+  local probeArg = raw:match("^probe%s*(.*)$")
 
   if command == "" or command == "config" then
     openSettingsCategory()
@@ -611,6 +612,19 @@ function SmartRez:ChatCommand(msg)
         print("Smart Rez: no learned proxy profession found. Try /sr proxy enchanting")
       end
     end
+  elseif command == "probe" or probeArg then
+    local probeValue = trim(probeArg or ""):lower()
+    if probeValue == "" or probeValue == "toggle" then
+      self:ToggleMenuProbe()
+    elseif probeValue == "on" or probeValue == "enable" then
+      self:SetMenuProbeEnabled(true)
+    elseif probeValue == "off" or probeValue == "disable" then
+      self:SetMenuProbeEnabled(false)
+    elseif probeValue == "state" or probeValue == "status" or probeValue == "once" then
+      self:PrintMenuProbeState("menu probe state")
+    else
+      print("Smart Rez: use /sr probe on|off|toggle|state")
+    end
   elseif tsmsRestriction and tsmsLabel then
     self:ClickVisibleTSMButton(tsmsLabel, tsmsRestriction)
   elseif tsmMailLabel then
@@ -627,6 +641,6 @@ function SmartRez:ChatCommand(msg)
     toggleOptionsPopup()
   else
     print(
-    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
+    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
   end
 end

@@ -221,7 +221,6 @@ local function suppressProfessionFrames(includeChildren)
 	if includeChildren ~= false then
 		suppressProfessionChildMouse(ProfessionsFrame)
 	end
-	GameTooltip:Hide()
 	if ProfessionsFrame.SetMouseClickEnabled then
 		ProfessionsFrame:SetMouseClickEnabled(false)
 	end

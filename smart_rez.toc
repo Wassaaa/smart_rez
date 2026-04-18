@@ -10,6 +10,7 @@
 embeds.xml
 core.lua
 professionProxy.lua
+menuProbe.lua
 craftSalvageConfig.lua
 overrideBindings.lua
 automationConfigUi.lua
