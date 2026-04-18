@@ -390,6 +390,14 @@ local function renderGoldPrinterGroup(parent)
 		SmartRez:SetGoldPrinterMinFreeSlots(math.floor((value or 1) + 0.5))
 	end)
 	goldPrinterGroup:AddChild(goldPrinterSlider)
+
+	local debugCheck = AceGUI:Create("CheckBox")
+	debugCheck:SetLabel("Enable debug messages")
+	debugCheck:SetValue(SmartRez:GetDebugEnabled())
+	debugCheck:SetCallback("OnValueChanged", function(_, _, value)
+		SmartRez:SetDebugEnabled(value)
+	end)
+	goldPrinterGroup:AddChild(debugCheck)
 end
 
 ---@param parent AceGUIContainer

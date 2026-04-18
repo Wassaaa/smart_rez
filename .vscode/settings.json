@@ -35,7 +35,12 @@
     "AUCTIONATOR_L_BUY_NOW",
     "TSM_API",
     "UIParent_OnEvent",
-    "ProfessionsBookFrame"
+    "ProfessionsBookFrame",
+    "UIErrorsFrame",
+    "SPELL_FAILED_CANT_BE_DISENCHANTED",
+    "ITEM_DISENCHANT_NOT_DISENCHANTABLE",
+    "SPELL_FAILED_CANT_BE_DISENCHANTED_SKILL",
+    "ITEM_DISENCHANT_MIN_SKILL"
   ],
   "Lua.diagnostics.disable": ["assign-type-mismatch"],
   "Lua.runtime.builtin": {
@@ -48,5 +53,6 @@
     "string": "disable",
     "table": "disable",
     "utf8": "disable"
-  }
+  },
+  "Lua.type.weakUnionCheck": true
 }

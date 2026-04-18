@@ -29,6 +29,9 @@ SmartRez.dbDefaults = {
 		cooldown = 0.25,
 		showMacroErrors = false,
 	},
+	debug = {
+		debug = false,
+	},
 	disenchantWhitelist = {},
 	salvageWhitelists = {},
 	salvageSelections = {},
@@ -169,6 +172,32 @@ function SmartRez:GetDisenchantWhitelist()
 	return self.db.disenchantWhitelist
 end
 
+function SmartRez:GetDebugEnabled()
+	self:EnsureConfig()
+	local debugConfig = self.db.debug
+	if type(debugConfig) ~= "table" then
+		debugConfig = {}
+		self.db.debug = debugConfig
+	end
+
+	if debugConfig.debug == nil and type(self.db.disenchant) == "table" then
+		debugConfig.debug = self.db.disenchant.debug == true
+	end
+
+	return debugConfig.debug == true
+end
+
+function SmartRez:SetDebugEnabled(value)
+	self:EnsureConfig()
+	if type(self.db.debug) ~= "table" then
+		self.db.debug = {}
+	end
+	self.db.debug.debug = value == true
+	if self.RefreshViews then
+		self:RefreshViews()
+	end
+end
+
 function SmartRez:GetGoldPrinterMinFreeSlots()
 	self:EnsureConfig()
 	return self.db.goldPrinter.minFreeSlots or self.goldPrinterMinFreeSlots
@@ -221,6 +250,9 @@ end
 function SmartRez:SetDisenchantWhitelist(whitelist)
 	self:EnsureConfig()
 	self.db.disenchantWhitelist = whitelist or {}
+	if self.RefreshDisenchantButton then
+		self:RefreshDisenchantButton()
+	end
 end
 
 function SmartRez:GetInventorySources()
@@ -393,12 +425,18 @@ function SmartRez:AddDisenchantWhitelistItem(itemID)
 
 	local whitelist = self:GetDisenchantWhitelist()
 	whitelist[itemID] = true
+	if self.RefreshDisenchantButton then
+		self:RefreshDisenchantButton()
+	end
 	self:RefreshViews()
 end
 
 function SmartRez:RemoveDisenchantWhitelistItem(itemID)
 	local whitelist = self:GetDisenchantWhitelist()
 	whitelist[itemID] = nil
+	if self.RefreshDisenchantButton then
+		self:RefreshDisenchantButton()
+	end
 	self:RefreshViews()
 end
 
@@ -652,6 +690,10 @@ function SmartRez:HandleInventoryChanged()
 
 	if self.RebuildCraftRecipeCache then
 		self:RebuildCraftRecipeCache()
+	end
+
+	if self.RefreshDisenchantButton then
+		self:RefreshDisenchantButton()
 	end
 end
 

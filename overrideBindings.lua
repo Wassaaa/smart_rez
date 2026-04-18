@@ -460,6 +460,18 @@ local function buildAceOptions()
             end
           end,
         },
+        debugtoggle = {
+          type = "toggle",
+          name = "Enable debug messages",
+          desc = "Print lightweight chat debug messages for Smart Rez modules.",
+          order = 9,
+          set = function(_, value)
+            SmartRez:SetDebugEnabled(value)
+          end,
+          get = function()
+            return SmartRez:GetDebugEnabled()
+          end,
+        },
         openpopup = {
           type = "execute",
           name = "Open Popup UI",
