@@ -8,6 +8,71 @@ local _C_OpenTradeSkill = C_TradeSkillUI.OpenTradeSkill
 local _C_OpenRecipe = C_TradeSkillUI.OpenRecipe
 local _GetTime = GetTime
 local _ItemLocation = ItemLocation
+local _floor = math.floor
+local _huge = math.huge
+
+local function buildCraftingReagents(reagents, numCasts)
+	local craftingReagents = {}
+
+	for index, reagent in ipairs(reagents or {}) do
+		craftingReagents[index] = {
+			reagent = {
+				itemID = reagent.itemID,
+			},
+			dataSlotIndex = reagent.dataSlotIndex or index,
+			quantity = reagent.quantity * (numCasts or 1),
+		}
+	end
+
+	if #craftingReagents == 0 then
+		return nil
+	end
+
+	return craftingReagents
+end
+
+function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
+	local selection = self:GetCraftSalvageSelection(professionKey)
+	local reagentPlan = {
+		reagents = {},
+		maxCasts = maxCasts or _huge,
+	}
+
+	for _, reagentSlot in ipairs(selection and selection.reagentSlots or {}) do
+		local allowedItems = self:GetCraftSalvageAllowedReagentItems(professionKey, reagentSlot.dataSlotIndex)
+		local bestItemID, bestPossibleCasts = nil, 0
+
+		for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+			if allowedItems[itemID] then
+				local itemCount = self:GetCraftingItemCount(itemID)
+				local possibleCasts = reagentSlot.quantityRequired > 0 and _floor(itemCount / reagentSlot.quantityRequired) or 0
+
+				if possibleCasts > bestPossibleCasts then
+					bestItemID = itemID
+					bestPossibleCasts = possibleCasts
+				end
+			end
+		end
+
+		if not bestItemID or bestPossibleCasts <= 0 then
+			return nil
+		end
+
+		reagentPlan.maxCasts = math.min(reagentPlan.maxCasts, bestPossibleCasts)
+		reagentPlan.reagents[#reagentPlan.reagents + 1] = {
+			itemID = bestItemID,
+			dataSlotIndex = reagentSlot.dataSlotIndex,
+			quantity = reagentSlot.quantityRequired,
+		}
+	end
+
+	if reagentPlan.maxCasts == _huge then
+		reagentPlan.maxCasts = maxCasts or 0
+	end
+
+	reagentPlan.craftingReagents = buildCraftingReagents(reagentPlan.reagents, reagentPlan.maxCasts)
+	return reagentPlan
+end
 
 function SmartRez:RebuildCraftSalvageCache()
 	local cache = {}
@@ -16,9 +81,11 @@ function SmartRez:RebuildCraftSalvageCache()
 	for professionKey, professionConfig in pairs(self.craftSalvageProfessions) do
 		local selection = self:GetCraftSalvageSelection(professionKey)
 		if selection and selection.recipeID and selection.requiredStack and self:HasProfession(professionConfig.professionID) then
+			local reagentPlan = self:BuildCraftSalvageReagentPlan(professionKey, _huge)
 			activeProfessions[professionKey] = {
 				selection = selection,
-				whitelist = self:GetCraftSalvageWhitelist(professionKey),
+				allowedTargets = self:GetCraftSalvageAllowedTargetItems(professionKey),
+				reagentPlan = reagentPlan,
 			}
 		end
 	end
@@ -28,9 +95,12 @@ function SmartRez:RebuildCraftSalvageCache()
 		if itemInfo then
 			for professionKey, professionState in pairs(activeProfessions) do
 				local selection = professionState.selection
-				local whitelist = professionState.whitelist
+				local reagentPlan = professionState.reagentPlan
+				local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
+				local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
+				local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or (hasRequiredReagents and 0 or targetCasts)
 
-				if whitelist[itemInfo.itemID] and itemInfo.stackCount >= selection.requiredStack then
+				if professionState.allowedTargets[itemInfo.itemID] and availableCasts > 0 then
 					local existingTarget = cache[professionKey]
 					local shouldReplace = existingTarget == nil
 
@@ -43,6 +113,7 @@ function SmartRez:RebuildCraftSalvageCache()
 							bag = bag,
 							slot = slot,
 							itemInfo = itemInfo,
+							availableCasts = availableCasts,
 						}
 					end
 				end
@@ -101,11 +172,14 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 		end
 
 		local target = SmartRez:GetCraftSalvageTarget(config.key)
-		if target then
-			local casts = math.floor(target.itemInfo.stackCount / selection.requiredStack)
+		if target and target.itemInfo.stackCount >= selection.requiredStack then
+			local maxTargetCasts = _floor(target.itemInfo.stackCount / selection.requiredStack)
+			local reagentPlan = SmartRez:BuildCraftSalvageReagentPlan(config.key, maxTargetCasts)
+			local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
+			local casts = reagentPlan and reagentPlan.maxCasts or (hasRequiredReagents and 0 or maxTargetCasts)
 			if casts > 0 then
 				itemLocation:SetBagAndSlot(target.bag, target.slot)
-				_C_TradeSkillUI_CraftSalvage(selection.recipeID, casts, itemLocation)
+				_C_TradeSkillUI_CraftSalvage(selection.recipeID, casts, itemLocation, reagentPlan and reagentPlan.craftingReagents or nil)
 				SmartRez:MarkCraftSalvageCacheDirty()
 			end
 		elseif selection.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then

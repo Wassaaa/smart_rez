@@ -4,61 +4,49 @@ local Profession = SmartRez.Profession
 -- Recipes stay code-defined, while each profession keeps a saved selected recipe.
 SmartRez:RegisterCraftSalvageRecipe({
 	key = "thalassian_filet",
-	label = "Thalassian Filet",
 	professionKey = "cooking",
 	order = 20,
 	recipeID = 1259655,
-	requiredStack = 5,
 })
 
 SmartRez:RegisterCraftSalvageRecipe({
 	key = "prospecting",
-	label = "Prospecting",
 	professionKey = "jewelcrafting",
 	order = 30,
-	recipeID = 434018,
-	requiredStack = 5,
+	recipeID = 1231127,
 })
 
 SmartRez:RegisterCraftSalvageRecipe({
 	key = "thaumaturgy",
-	label = "Thaumaturgy",
 	professionKey = "alchemy",
 	order = 40,
 	recipeID = 430315,
-	requiredStack = 20,
 	sortBagsOnLoad = true,
 	sortBagsWhenEmpty = true,
 })
 
 SmartRez:RegisterCraftSalvageRecipe({
 	key = "shattering",
-	label = "Shattering",
 	professionKey = "enchanting",
 	order = 50,
 	recipeID = 1280394,
-	requiredStack = 1,
 	preferLargestStack = true,
 })
 
 SmartRez:RegisterCraftSalvageRecipe({
 	key = "recycling",
-	label = "Recycling",
 	professionKey = "engineering",
 	order = 60,
 	recipeID = 1229930,
-	requiredStack = 5,
 	sortBagsOnLoad = true,
 	sortBagsWhenEmpty = true,
 })
 
 SmartRez:RegisterCraftSalvageRecipe({
 	key = "milling",
-	label = "Milling",
 	professionKey = "inscription",
 	order = 70,
 	recipeID = 1269575,
-	requiredStack = 10,
 	preferLargestStack = true,
 	sortBagsOnLoad = true,
 	sortBagsWhenEmpty = true,

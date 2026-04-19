@@ -259,6 +259,13 @@ When adding runtime Lua modules:
 
 Do not assume recalled knowledge is current for modern WoW addon APIs.
 
+When local code is not enough, do not guess WoW API field meanings or value mappings from memory.
+
+- Ask the user to run targeted `/dump` commands for the exact live API values instead of assuming.
+- Prefer confirming real live-returned fields over adding fallback logic based on recollection.
+- If a value meaning is ambiguous, stop and verify with user-provided dumps before hardcoding behavior.
+- Treat modern profession and crafting-quality APIs as especially dump-first.
+
 If local source and vendored library code are not enough:
 
 - web search for the current Retail implementation
@@ -276,6 +283,26 @@ Use web verification especially for:
 - library usage when repo-local docs are weak
 
 Midnight changed parts of the addon API surface. Many older patterns still work, but future agents should verify instead of assuming.
+
+## Salvage API Findings
+
+Recent live testing in this repo established a few salvage-specific rules that future edits should preserve unless the APIs change again:
+
+- Do not assume salvage target stack size comes from `reagentSlotSchematics`.
+- For salvage recipes, prefer `recipeSchematic.quantityMin` / `quantityMax` for the salvage target stack requirement.
+- Use `C_TradeSkillUI.GetSalvagableItemIDs(recipeID)` for the salvage target candidate pool.
+- Use `recipeSchematic.reagentSlotSchematics[*].reagents` for per-slot allowed reagent item choices.
+- Treat salvage target filtering and reagent-slot filtering as separate concepts in config and UI.
+- `C_TradeSkillUI.CraftSalvage(...)` can take the salvage target item location plus an additional reagent table for extra required slots.
+- When a salvage recipe has extra required reagent slots, limit casts by both the salvage target stack and those reagent quantities.
+
+### Crafting quality findings
+
+- Do not use normal item rarity for profession reagent quality UI.
+- Use `C_TradeSkillUI.GetItemReagentQualityByItemInfo(itemID)` for reagent quality.
+- Older three-tier reagents report `1/2/3` as bronze/silver/gold.
+- Midnight two-tier reagents report `1/2`, but should display using the Midnight profession-quality icon family rather than the legacy one.
+- If the exact icon mapping is unclear, ask the user for dumps instead of inventing a conversion.
 
 ## Preferred Refactor Direction
 

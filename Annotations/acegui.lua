@@ -52,6 +52,25 @@ local AceGUIButton = {}
 ---@param text string?
 function AceGUIButton:SetText(text) end
 
+---@class AceGUIIcon: AceGUIWidget
+---@field frame table
+---@field image table
+---@field qualityBadge? table
+---@field selectionGlow? table
+
+---@param text string?
+function AceGUIIcon:SetLabel(text) end
+
+---@param path any
+function AceGUIIcon:SetImage(path, ...) end
+
+---@param width number
+---@param height number
+function AceGUIIcon:SetImageSize(width, height) end
+
+---@param disabled boolean
+function AceGUIIcon:SetDisabled(disabled) end
+
 ---@class AceGUICheckBox: AceGUIWidget
 local AceGUICheckBox = {}
 
@@ -122,6 +141,7 @@ local AceGUILib = {}
 ---@overload fun(self: AceGUILib, widgetType: "Label"): AceGUILabel
 ---@overload fun(self: AceGUILib, widgetType: "InteractiveLabel"): AceGUIInteractiveLabel
 ---@overload fun(self: AceGUILib, widgetType: "Button"): AceGUIButton
+---@overload fun(self: AceGUILib, widgetType: "Icon"): AceGUIIcon
 ---@overload fun(self: AceGUILib, widgetType: "CheckBox"): AceGUICheckBox
 ---@overload fun(self: AceGUILib, widgetType: "Slider"): AceGUISlider
 ---@overload fun(self: AceGUILib, widgetType: "SimpleGroup"): AceGUISimpleGroup

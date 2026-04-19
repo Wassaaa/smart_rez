@@ -3,6 +3,7 @@ local SmartRez = _G.SmartRez
 local _C_OpenTradeSkill = C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill
 local _C_GetRecipeInfo = C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo
 local _C_GetRecipeSchematic = C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic
+local _C_GetSalvagableItemIDs = C_TradeSkillUI and C_TradeSkillUI.GetSalvagableItemIDs
 
 local LEGACY_SALVAGE_ACTION_KEY_BY_PROFESSION = {
 	alchemy = "thaumaturgy",
@@ -87,6 +88,25 @@ local function mergeSelectionDefaults(selection, fallback)
 	return selection
 end
 
+local function syncSelectionWithRegisteredRecipe(selection, fallback)
+	if not fallback then
+		return selection
+	end
+
+	selection.recipeKey = fallback.recipeKey or selection.recipeKey
+	selection.label = fallback.label or selection.label
+	selection.requiredProfession = fallback.requiredProfession or selection.requiredProfession
+	selection.openTradeSkillID = fallback.openTradeSkillID or selection.openTradeSkillID
+	selection.requiredStack = fallback.requiredStack or selection.requiredStack
+	selection.salvageTargetItemIDs = copyTable(fallback.salvageTargetItemIDs or selection.salvageTargetItemIDs)
+	selection.reagentSlots = copyTable(fallback.reagentSlots or selection.reagentSlots)
+	selection.preferLargestStack = fallback.preferLargestStack == true
+	selection.sortBagsOnLoad = fallback.sortBagsOnLoad == true
+	selection.sortBagsWhenEmpty = fallback.sortBagsWhenEmpty == true
+
+	return selection
+end
+
 local function findRequiredStackInReagents(reagents)
 	for _, reagent in ipairs(reagents or {}) do
 		if reagent.quantity and reagent.quantity > 0 then
@@ -103,56 +123,141 @@ local function getRequiredStackFromReagents(reagents)
 	return findRequiredStackInReagents(reagents) or 1
 end
 
-local function getRequiredStackFromSchematic(recipeSchematic)
-	return findRequiredStackInReagents(recipeSchematic and recipeSchematic.reagentSlotSchematics)
-end
+local function getRequiredReagentSlots(recipeSchematic)
+	local requiredSlots = {}
 
-local function getResolvedRecipeLabel(profession, recipeConfig)
-	local label = recipeConfig.label
-	local currentState = SmartRez.currentProfessionState
-
-	if currentState and currentState.recipeID == recipeConfig.recipeID and currentState.requiredProfession == profession.professionID then
-		label = currentState.label or label
-	end
-
-	if _C_GetRecipeSchematic then
-		local recipeSchematic = _C_GetRecipeSchematic(recipeConfig.recipeID, false)
-		if recipeSchematic and recipeSchematic.name then
-			label = recipeSchematic.name
+	for _, reagentSlot in ipairs(recipeSchematic and recipeSchematic.reagentSlotSchematics or {}) do
+		if reagentSlot.required ~= false and reagentSlot.quantityRequired and reagentSlot.quantityRequired > 0 then
+			requiredSlots[#requiredSlots + 1] = reagentSlot
 		end
 	end
 
+	return requiredSlots
+end
+
+local function getRequiredStackFromSchematic(recipeSchematic)
+	if recipeSchematic and recipeSchematic.quantityMin and recipeSchematic.quantityMin > 0 then
+		return recipeSchematic.quantityMin
+	end
+
+	if recipeSchematic and recipeSchematic.quantityMax and recipeSchematic.quantityMax > 0 then
+		return recipeSchematic.quantityMax
+	end
+
+	local reagentQuantity = findRequiredStackInReagents(getRequiredReagentSlots(recipeSchematic))
+	if reagentQuantity and reagentQuantity > 0 then
+		return reagentQuantity
+	end
+end
+
+local function getRequiredStackFromCurrentState(currentState)
+	if not currentState then
+		return nil
+	end
+
+	if currentState.outputQuantityMin and currentState.outputQuantityMin > 0 then
+		return currentState.outputQuantityMin
+	end
+
+	if currentState.outputQuantityMax and currentState.outputQuantityMax > 0 then
+		return currentState.outputQuantityMax
+	end
+
+	local reagentQuantity = findRequiredStackInReagents(currentState.reagents)
+	if reagentQuantity and reagentQuantity > 0 then
+		return reagentQuantity
+	end
+end
+
+local function getSalvageTargetItemIDs(recipeID)
+	local itemIDs = {}
+
+	for _, itemID in ipairs(_C_GetSalvagableItemIDs and _C_GetSalvagableItemIDs(recipeID) or {}) do
+		if itemID then
+			itemIDs[#itemIDs + 1] = itemID
+		end
+	end
+
+	return itemIDs
+end
+
+local function getReagentSlotsFromSchematic(recipeSchematic)
+	local reagentSlots = {}
+
+	for _, reagentSlot in ipairs(getRequiredReagentSlots(recipeSchematic)) do
+		local allowedItemIDs = {}
+
+		for _, reagent in ipairs(reagentSlot.reagents or {}) do
+			if reagent.itemID then
+				allowedItemIDs[#allowedItemIDs + 1] = reagent.itemID
+			end
+		end
+
+		reagentSlots[#reagentSlots + 1] = {
+			slotIndex = reagentSlot.slotIndex,
+			dataSlotIndex = reagentSlot.dataSlotIndex or reagentSlot.slotIndex,
+			label = reagentSlot.slotInfo and reagentSlot.slotInfo.slotText or ("Slot " .. tostring(reagentSlot.slotIndex)),
+			quantityRequired = reagentSlot.quantityRequired or 0,
+			allowedItemIDs = allowedItemIDs,
+		}
+	end
+
+	return reagentSlots
+end
+
+local function getCurrentRecipeState(professionID, recipeID)
+	local currentState = SmartRez.currentProfessionState
+
+	if currentState and currentState.recipeID == recipeID and currentState.requiredProfession == professionID then
+		return currentState
+	end
+end
+
+local function getResolvedRecipeDetailsByID(professionID, recipeID, fallbackLabel, fallbackRequiredStack)
+	local label = fallbackLabel
+	local requiredStack = fallbackRequiredStack
+	local currentState = getCurrentRecipeState(professionID, recipeID)
+	local salvageTargetItemIDs = {}
+	local reagentSlots = {}
+
+	if _C_GetRecipeSchematic then
+		local recipeSchematic = _C_GetRecipeSchematic(recipeID, false)
+		if recipeSchematic and recipeSchematic.name then
+			label = recipeSchematic.name
+		end
+		requiredStack = getRequiredStackFromSchematic(recipeSchematic) or requiredStack
+		reagentSlots = getReagentSlotsFromSchematic(recipeSchematic)
+	end
+
 	if _C_GetRecipeInfo then
-		local recipeInfo = _C_GetRecipeInfo(recipeConfig.recipeID)
+		local recipeInfo = _C_GetRecipeInfo(recipeID)
 		if recipeInfo and recipeInfo.name then
 			label = recipeInfo.name
 		end
 	end
 
-	return label
-end
+	salvageTargetItemIDs = getSalvageTargetItemIDs(recipeID)
 
-local function getResolvedRecipeDetails(profession, recipeConfig)
-	local label = getResolvedRecipeLabel(profession, recipeConfig)
-	local requiredStack = recipeConfig.requiredStack or 1
-	local hasConfiguredRequiredStack = recipeConfig.requiredStack ~= nil
-	local currentState = SmartRez.currentProfessionState
-
-	if not hasConfiguredRequiredStack and currentState and currentState.recipeID == recipeConfig.recipeID and currentState.requiredProfession == profession.professionID then
-		requiredStack = getRequiredStackFromReagents(currentState.reagents)
-	end
-
-	if not hasConfiguredRequiredStack and _C_GetRecipeSchematic then
-		local recipeSchematic = _C_GetRecipeSchematic(recipeConfig.recipeID, false)
-		if recipeSchematic then
-			requiredStack = getRequiredStackFromSchematic(recipeSchematic) or requiredStack
-		end
+	if currentState then
+		label = currentState.label or label
+		requiredStack = requiredStack or getRequiredStackFromCurrentState(currentState)
 	end
 
 	return {
 		label = label,
-		requiredStack = requiredStack,
+		requiredStack = requiredStack or 1,
+		salvageTargetItemIDs = salvageTargetItemIDs,
+		reagentSlots = reagentSlots,
 	}
+end
+
+local function getResolvedRecipeDetails(profession, recipeConfig)
+	return getResolvedRecipeDetailsByID(
+		profession.professionID,
+		recipeConfig.recipeID,
+		recipeConfig.label,
+		recipeConfig.requiredStack
+	)
 end
 
 local function buildSelectionFromRecipe(profession, recipeConfig, isDefault)
@@ -171,6 +276,8 @@ local function buildSelectionFromRecipe(profession, recipeConfig, isDefault)
 		requiredProfession = profession.professionID,
 		openTradeSkillID = profession.professionID,
 		requiredStack = resolvedDetails.requiredStack,
+		salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs,
+		reagentSlots = resolvedDetails.reagentSlots,
 		preferLargestStack = recipeConfig.preferLargestStack == true,
 		sortBagsOnLoad = recipeConfig.sortBagsOnLoad == true,
 		sortBagsWhenEmpty = recipeConfig.sortBagsWhenEmpty == true,
@@ -179,7 +286,6 @@ local function buildSelectionFromRecipe(profession, recipeConfig, isDefault)
 end
 
 function SmartRez:RegisterCraftSalvageRecipe(config)
-	config.requiredStack = config.requiredStack or 1
 	self.craftSalvageRecipes[config.key] = config
 	self:MarkCraftSalvageCacheDirty()
 end
@@ -221,8 +327,32 @@ function SmartRez:GetCraftSalvageWhitelistStorageKey(professionKey)
 	return getCraftSalvageWhitelistStorageKey(professionKey, selection)
 end
 
+local function normalizeCraftSalvageWhitelistStorage(storage)
+	if type(storage) ~= "table" then
+		return {
+			targetItems = {},
+			reagentSlots = {},
+		}
+	end
+
+	if storage.targetItems or storage.reagentSlots then
+		if type(storage.targetItems) ~= "table" then
+			storage.targetItems = {}
+		end
+		if type(storage.reagentSlots) ~= "table" then
+			storage.reagentSlots = {}
+		end
+		return storage
+	end
+
+	return {
+		targetItems = storage,
+		reagentSlots = {},
+	}
+end
+
 -- Keep salvage whitelists character-scoped and tied to the currently selected recipe.
-function SmartRez:GetCraftSalvageWhitelist(professionKey)
+function SmartRez:GetCraftSalvageWhitelistStorage(professionKey)
 	self:EnsureConfig()
 
 	local storageKey = self:GetCraftSalvageWhitelistStorageKey(professionKey)
@@ -238,11 +368,32 @@ function SmartRez:GetCraftSalvageWhitelist(professionKey)
 		end
 	end
 
-	if type(whitelists[storageKey]) ~= "table" then
-		whitelists[storageKey] = {}
+	whitelists[storageKey] = normalizeCraftSalvageWhitelistStorage(whitelists[storageKey])
+	return whitelists[storageKey]
+end
+
+function SmartRez:GetCraftSalvageWhitelist(professionKey)
+	return self:GetCraftSalvageWhitelistStorage(professionKey).targetItems
+end
+
+function SmartRez:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
+	local storage = self:GetCraftSalvageWhitelistStorage(professionKey)
+
+	if type(storage.reagentSlots[dataSlotIndex]) ~= "table" then
+		storage.reagentSlots[dataSlotIndex] = {}
 	end
 
-	return whitelists[storageKey]
+	return storage.reagentSlots[dataSlotIndex]
+end
+
+local function itemListContains(itemIDs, itemID)
+	for _, allowedItemID in ipairs(itemIDs or {}) do
+		if allowedItemID == itemID then
+			return true
+		end
+	end
+
+	return false
 end
 
 function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID)
@@ -250,7 +401,40 @@ function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID)
 		return
 	end
 
+	local selection = self:GetCraftSalvageSelection(professionKey)
+	if not itemListContains(selection and selection.salvageTargetItemIDs, itemID) then
+		print("Smart Rez:", "That item is not in the recipe's salvage target list.")
+		return
+	end
+
 	local whitelist = self:GetCraftSalvageWhitelist(professionKey)
+	whitelist[itemID] = true
+	self:MarkCraftSalvageCacheDirty()
+	self:RefreshViews()
+end
+
+function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID)
+	if not professionKey or not dataSlotIndex or not itemID or not self.craftSalvageProfessions[professionKey] then
+		return
+	end
+
+	local reagentSlots = self:GetCraftSalvageReagentSlots(professionKey)
+	local slotFound = false
+	for _, reagentSlot in ipairs(reagentSlots) do
+		if reagentSlot.dataSlotIndex == dataSlotIndex then
+			slotFound = true
+			if not itemListContains(reagentSlot.allowedItemIDs, itemID) then
+				print("Smart Rez:", "That item is not allowed in this reagent slot.")
+				return
+			end
+		end
+	end
+
+	if not slotFound then
+		return
+	end
+
+	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
 	whitelist[itemID] = true
 	self:MarkCraftSalvageCacheDirty()
 	self:RefreshViews()
@@ -261,6 +445,54 @@ function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID)
 	whitelist[itemID] = nil
 	self:MarkCraftSalvageCacheDirty()
 	self:RefreshViews()
+end
+
+function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID)
+	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
+	whitelist[itemID] = nil
+	self:MarkCraftSalvageCacheDirty()
+	self:RefreshViews()
+end
+
+local function buildAllowedItemSet(allowedItemIDs, customWhitelist)
+	local allowedItems = {}
+	local hasCustomFilter = next(customWhitelist or {}) ~= nil
+
+	if hasCustomFilter then
+		for _, itemID in ipairs(allowedItemIDs or {}) do
+			if customWhitelist[itemID] then
+				allowedItems[itemID] = true
+			end
+		end
+	else
+		for _, itemID in ipairs(allowedItemIDs or {}) do
+			allowedItems[itemID] = true
+		end
+	end
+
+	return allowedItems
+end
+
+function SmartRez:GetCraftSalvageAllowedTargetItems(professionKey)
+	local selection = self:GetCraftSalvageSelection(professionKey)
+	return buildAllowedItemSet(selection and selection.salvageTargetItemIDs, self:GetCraftSalvageWhitelist(professionKey))
+end
+
+function SmartRez:GetCraftSalvageReagentSlots(professionKey)
+	local selection = self:GetCraftSalvageSelection(professionKey)
+	return selection and selection.reagentSlots or {}
+end
+
+function SmartRez:GetCraftSalvageAllowedReagentItems(professionKey, dataSlotIndex)
+	local reagentSlots = self:GetCraftSalvageReagentSlots(professionKey)
+
+	for _, reagentSlot in ipairs(reagentSlots) do
+		if reagentSlot.dataSlotIndex == dataSlotIndex then
+			return buildAllowedItemSet(reagentSlot.allowedItemIDs, self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex))
+		end
+	end
+
+	return {}
 end
 
 function SmartRez:GetCraftSalvageSelection(professionKey)
@@ -274,15 +506,19 @@ function SmartRez:GetCraftSalvageSelection(professionKey)
 	local savedSelection = self.db.salvageSelections[professionKey]
 	if type(savedSelection) == "table" and savedSelection.recipeID then
 		local selection = copyTable(savedSelection)
-		local registeredRecipe = selection.recipeKey and self:GetCraftSalvageRecipe(selection.recipeKey) or nil
+		local registeredRecipe = selection.recipeKey and self:GetCraftSalvageRecipe(selection.recipeKey)
+			or self:FindCraftSalvageRecipeByRecipeID(selection.recipeID, professionKey)
 		local fallback = buildSelectionFromRecipe(profession, registeredRecipe, false)
 
 		mergeSelectionDefaults(selection, fallback)
+		syncSelectionWithRegisteredRecipe(selection, fallback)
 		selection.professionKey = profession.key
 		selection.professionLabel = profession.label
 		selection.requiredProfession = selection.requiredProfession or profession.professionID
 		selection.openTradeSkillID = selection.openTradeSkillID or profession.professionID
 		selection.requiredStack = selection.requiredStack or 1
+		selection.salvageTargetItemIDs = selection.salvageTargetItemIDs or {}
+		selection.reagentSlots = selection.reagentSlots or {}
 		selection.isDefault = false
 		return selection
 	end
@@ -331,20 +567,33 @@ function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
 	end
 
 	local registeredRecipe = self:FindCraftSalvageRecipeByRecipeID(currentState.recipeID, professionKey)
+	local resolvedDetails = getResolvedRecipeDetailsByID(
+		profession.professionID,
+		currentState.recipeID,
+		currentState.label,
+		getRequiredStackFromCurrentState(currentState)
+	)
 	local selection = registeredRecipe and buildSelectionFromRecipe(profession, registeredRecipe, false) or {
 		professionKey = profession.key,
 		professionLabel = profession.label,
+		label = resolvedDetails.label,
+		recipeID = currentState.recipeID,
 		requiredProfession = profession.professionID,
 		openTradeSkillID = profession.professionID,
-		requiredStack = getRequiredStackFromReagents(currentState.reagents),
+		requiredStack = resolvedDetails.requiredStack,
+		salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs,
+		reagentSlots = resolvedDetails.reagentSlots,
 		preferLargestStack = false,
 		sortBagsOnLoad = false,
 		sortBagsWhenEmpty = false,
 	}
 
 	selection.recipeKey = registeredRecipe and registeredRecipe.key or nil
-	selection.label = currentState.label or selection.label
+	selection.label = resolvedDetails.label or selection.label
 	selection.recipeID = currentState.recipeID
+	selection.requiredStack = resolvedDetails.requiredStack or selection.requiredStack or 1
+	selection.salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs or selection.salvageTargetItemIDs or {}
+	selection.reagentSlots = resolvedDetails.reagentSlots or selection.reagentSlots or {}
 	selection.isDefault = false
 
 	self:SetCraftSalvageSelection(professionKey, selection)
