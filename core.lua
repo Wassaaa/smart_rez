@@ -722,3 +722,4 @@ end
 
 _G["BINDING_HEADER_SMARTREZ"] = "Smart Rez"
 _G["BINDING_NAME_CLICK SmartRezModeToggleBtn:LeftButton"] = "Toggle Smart Rez Mode"
+_G["BINDING_NAME_CLICK LowModeToggleBtn:LeftButton"] = "Toggle Low Mode"

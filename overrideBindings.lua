@@ -498,6 +498,61 @@ local function buildAceOptions()
         },
       },
     },
+    lowmode = {
+      type = "group",
+      name = "Low Mode",
+      inline = true,
+      order = 21,
+      args = {
+        help = {
+          type = "description",
+          name = "Low Mode hides the UI and applies a small set of low graphics CVars. Snapshot your preferred normal settings here if they change.",
+          order = 5,
+          fontSize = "medium",
+        },
+        status = {
+          type = "description",
+          name = function()
+            local enabled = SmartRez.IsLowModeEnabled and SmartRez:IsLowModeEnabled()
+            return "Low Mode: " .. (enabled and colorize("7EE787", "Enabled") or colorize("FFB86C", "Disabled"))
+          end,
+          order = 10,
+          fontSize = "medium",
+        },
+        snapshotstatus = {
+          type = "description",
+          name = function()
+            return "Low Mode Snapshot: " .. colorize("79C0FF", SmartRez.GetLowModeSnapshotSummary and SmartRez:GetLowModeSnapshotSummary() or "Unavailable")
+          end,
+          order = 15,
+          fontSize = "medium",
+        },
+        toggle = {
+          type = "execute",
+          name = "Toggle Low Mode",
+          order = 20,
+          func = function()
+            if _G.LowModeToggleBtn and _G.LowModeToggleBtn.Click then
+              _G.LowModeToggleBtn:Click("LeftButton")
+            end
+          end,
+        },
+        snapshot = {
+          type = "execute",
+          name = "Snapshot Current Settings",
+          desc = "Overwrite the saved normal-settings snapshot with your current graphics/UI settings.",
+          order = 25,
+          func = function()
+            if SmartRez.CaptureLowModeSnapshot then
+              local _, message = SmartRez:CaptureLowModeSnapshot(true)
+              if message then
+                print("SmartRez:", message)
+              end
+            end
+          end,
+        },
+      },
+    },
   }
 
   for index, action in ipairs(getActions()) do

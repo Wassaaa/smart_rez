@@ -25,3 +25,4 @@ goldPrinter.lua
 recipeCrafts.lua
 snipeAuctionator.lua
 tsmLabelClick.lua
+lowmode.lua
