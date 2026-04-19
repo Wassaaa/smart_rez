@@ -3,6 +3,7 @@ local SmartRez = _G.SmartRez
 local _C_GetBaseProfessionInfo = C_TradeSkillUI.GetBaseProfessionInfo
 local _C_OpenTradeSkill = C_TradeSkillUI.OpenTradeSkill
 local _C_OpenRecipe = C_TradeSkillUI.OpenRecipe
+local _C_SortBags = C_Container.SortBags
 local _GetCVar = GetCVar
 local _GetTime = GetTime
 local _UnitCastingInfo = UnitCastingInfo
@@ -12,10 +13,6 @@ local _format = string.format
 local ACTIVITY_TIMEOUT_PADDING_SECONDS = 0.2
 local ACTIVITY_TIMEOUT_RETRY_DELAY_SECONDS = 0.1
 local ACTIVITY_TIMEOUT_RETRY_ATTEMPTS = 5
-
-local INVENTORY_FULL_ERROR_MESSAGE = "Inventory is full"
-local INTERRUPTED_ERROR_MESSAGE = "Interrupted"
-local UI_INTERRUPTED_ERROR_MESSAGE = "UI Interrupted"
 
 local function defaultDebugEnabled()
 	return SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled() or false
@@ -63,9 +60,12 @@ function SmartRez:CreateCraftActionController(options)
 		unBlockButton = 0,
 		pendingUnlockAt = 0,
 		isWaitingForCraftStart = false,
+		isWaitingForBagSpace = false,
 		isCraftInProgress = false,
 		expectedSpellID = nil,
 		timeoutExpiredReason = nil,
+		bagSpaceRetrySeconds = 0,
+		lastBagSortAttemptAt = 0,
 		activityTimeoutRetryAttempts = 0,
 		activityTimeoutRetryAt = 0,
 	}
@@ -75,7 +75,7 @@ function SmartRez:CreateCraftActionController(options)
 	end
 
 	function controller:IsBlocked()
-		return self.unBlockButton > _GetTime()
+		return self.isWaitingForBagSpace or self.unBlockButton > _GetTime()
 	end
 
 	function controller:MarkDirty()
@@ -89,9 +89,12 @@ function SmartRez:CreateCraftActionController(options)
 		self.unBlockButton = 0
 		self.pendingUnlockAt = 0
 		self.isWaitingForCraftStart = false
+		self.isWaitingForBagSpace = false
 		self.isCraftInProgress = false
 		self.expectedSpellID = nil
 		self.timeoutExpiredReason = nil
+		self.bagSpaceRetrySeconds = 0
+		self.lastBagSortAttemptAt = 0
 		self.activityTimeoutRetryAttempts = 0
 		self.activityTimeoutRetryAt = 0
 		self.frame:UnregisterAllEvents()
@@ -148,6 +151,7 @@ function SmartRez:CreateCraftActionController(options)
 
 	function controller:BeginPendingStart(expectedSpellID)
 		self.isWaitingForCraftStart = true
+		self.isWaitingForBagSpace = false
 		self.isCraftInProgress = false
 		self.expectedSpellID = expectedSpellID
 		self.timeoutExpiredReason = self.options.startTimeoutReason or "craft start timeout"
@@ -160,18 +164,55 @@ function SmartRez:CreateCraftActionController(options)
 
 	function controller:BeginExternalWait(seconds, reason, timeoutReason)
 		self.isWaitingForCraftStart = false
+		self.isWaitingForBagSpace = false
 		self.isCraftInProgress = false
 		self.expectedSpellID = nil
 		self.timeoutExpiredReason = timeoutReason or reason or "wait timeout"
+		self.bagSpaceRetrySeconds = 0
 		self.activityTimeoutRetryAttempts = 0
 		self.activityTimeoutRetryAt = 0
 		self:SetTimeout(seconds, reason or "wait")
 		self:EnsureOnUpdate()
 	end
 
+	function controller:BeginBagSpaceWait(seconds, reason)
+		self.isWaitingForCraftStart = false
+		self.isWaitingForBagSpace = true
+		self.isCraftInProgress = false
+		self.expectedSpellID = nil
+		self.timeoutExpiredReason = reason or "waiting for bag space"
+		self.bagSpaceRetrySeconds = 0
+		self.activityTimeoutRetryAttempts = 0
+		self.activityTimeoutRetryAt = 0
+		self.unBlockButton = 0
+		self.pendingUnlockAt = 0
+		self.frame:SetScript("OnUpdate", nil)
+		self:Debug("lock", reason or "waiting for bag space")
+	end
+
+	function controller:TrySortPlayerBagsForSpace()
+		if not _C_SortBags then
+			return false
+		end
+
+		if (_GetTime() - self.lastBagSortAttemptAt) < 1 then
+			return false
+		end
+
+		self.lastBagSortAttemptAt = _GetTime()
+		self:Debug("sorting bags", "before bag space wait")
+		_C_SortBags()
+		if SmartRez.RebuildInventoryCounts then
+			SmartRez:RebuildInventoryCounts()
+		end
+		self:MarkDirty()
+		return true
+	end
+
 	function controller:RefreshActivityTimeout(seconds, reason)
 		local wasCraftInProgress = self.isCraftInProgress
 		self.isWaitingForCraftStart = false
+		self.isWaitingForBagSpace = false
 		self.isCraftInProgress = true
 		self.timeoutExpiredReason = self.options.activityTimeoutReason or "activity timeout"
 		local timeoutSeconds, hasLiveCastInfo = SmartRez:GetActiveCraftTimeout(
@@ -218,6 +259,17 @@ function SmartRez:CreateCraftActionController(options)
 			return false
 		end
 
+		if self.isWaitingForBagSpace then
+			self:Debug(
+				"blocked",
+				"waitingForBagSpace", "true",
+				"waitingForStart", tostring(self.isWaitingForCraftStart),
+				"craftInProgress", tostring(self.isCraftInProgress),
+				"spell", self.expectedSpellID or "nil"
+			)
+			return true
+		end
+
 		self:Debug(
 			"blocked",
 			"remaining", _format("%.2f", self.unBlockButton - _GetTime()),
@@ -228,27 +280,38 @@ function SmartRez:CreateCraftActionController(options)
 		return true
 	end
 
-	function controller:HandleUIError(errorType, message, interruptedReason)
-		if not self:IsBlocked() then
+	function controller:HandleBagUpdateWhileWaitingForSpace()
+		if not self.isWaitingForBagSpace then
 			return false
 		end
 
-		local normalizedMessage = type(message) == "string" and string.lower(message) or nil
+		if SmartRez:GetFreeBagSlots() > 0 then
+			self:Debug("bags updated", "space available")
+			self:Unlock("bag space available")
+		end
 
-		if message == ERR_INV_FULL or normalizedMessage == string.lower(INVENTORY_FULL_ERROR_MESSAGE) then
-			self:Debug("ui error", errorType or "nil", message or "nil")
-			self:Unlock("bags full")
+		return true
+	end
+
+	function controller:HandleUnitSpellcastFailed(unitToken, spellID, failureReason)
+		if unitToken ~= "player" or not self:IsBlocked() or not self:MatchesExpectedSpell(spellID) then
+			return false
+		end
+
+		self:Debug("spell event", failureReason or "spell failed", unitToken, spellID or "nil")
+		if SmartRez:GetFreeBagSlots() <= 0 then
+			self:TrySortPlayerBagsForSpace()
+			if SmartRez:GetFreeBagSlots() > 0 then
+				self:Unlock("bag space created by sort")
+				return true
+			end
+
+			self:BeginBagSpaceWait(nil, "waiting for bag space")
 			return true
 		end
 
-		if normalizedMessage == string.lower(INTERRUPTED_ERROR_MESSAGE) or normalizedMessage == string.lower(UI_INTERRUPTED_ERROR_MESSAGE) then
-			self:Debug("ui error", errorType or "nil", message or "nil")
-			self:Unlock(interruptedReason or "ui interrupted")
-			return true
-		end
-
-		self:Debug("ui error ignored", errorType or "nil", message or "nil")
-		return false
+		self:Unlock(failureReason or "spell failed")
+		return true
 	end
 
 	return controller

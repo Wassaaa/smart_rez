@@ -162,10 +162,10 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		registerEvents = function(controller)
 			controller.frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
 			controller.frame:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+			controller.frame:RegisterEvent("BAG_UPDATE_DELAYED")
 			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
 			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
 			controller.frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-			controller.frame:RegisterEvent("UI_ERROR_MESSAGE")
 		end,
 	})
 	local actionFrame = actionController.frame
@@ -262,12 +262,17 @@ function SmartRez:RegisterCraftRecipeAction(config)
 			return
 		end
 
-		if eventName == "UI_ERROR_MESSAGE" then
-			actionController:HandleUIError(...)
+		if eventName == "BAG_UPDATE_DELAYED" then
+			actionController:HandleBagUpdateWhileWaitingForSpace()
 			return
 		end
 
-		local unit = ...
+		local unit, _, spellID = ...
+		if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
+			actionController:HandleUnitSpellcastFailed(unit, spellID, eventName)
+			return
+		end
+
 		if unit == "player" then
 			actionController:Debug("spell event", eventName)
 			actionController:Unlock(eventName)

@@ -7,13 +7,10 @@ local _GetTime = GetTime
 local _ItemLocation = ItemLocation
 local _floor = math.floor
 local _huge = math.huge
-local _strlower = string.lower
 
 local SALVAGE_START_TIMEOUT_SECONDS = 1
 local SALVAGE_ACTIVITY_TIMEOUT_SECONDS = 2
 local SALVAGE_SORT_SETTLE_SECONDS = 1
-local INTERRUPTED_ERROR_MESSAGE = "Interrupted"
-local UI_INTERRUPTED_ERROR_MESSAGE = "UI Interrupted"
 
 local function buildCraftingReagents(reagents, numCasts)
 	local craftingReagents = {}
@@ -116,24 +113,7 @@ function SmartRez:RebuildCraftSalvageCache()
 					local existingTarget = cache[professionKey]
 					local shouldReplace = existingTarget == nil
 
-					if not shouldReplace and availableCasts > (existingTarget.availableCasts or 0) then
-						shouldReplace = true
-					end
-
-					if not shouldReplace and availableCasts == (existingTarget.availableCasts or 0) and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
-						shouldReplace = true
-					end
-
-					if
-						not shouldReplace
-						and availableCasts == (existingTarget.availableCasts or 0)
-						and itemInfo.stackCount == existingTarget.itemInfo.stackCount
-						and isHigherBagSlotCandidate(bag, slot, existingTarget.bag, existingTarget.slot)
-					then
-						shouldReplace = true
-					end
-
-					if not shouldReplace and selection.preferLargestStack and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
+					if not shouldReplace and isHigherBagSlotCandidate(bag, slot, existingTarget.bag, existingTarget.slot) then
 						shouldReplace = true
 					end
 
@@ -179,20 +159,7 @@ function SmartRez:GetBestCraftSalvageLiveTarget(professionKey)
 		end
 
 		local shouldReplace = bestTarget == nil
-		if not shouldReplace and availableCasts > (bestTarget.availableCasts or 0) then
-			shouldReplace = true
-		end
-
-		if not shouldReplace and availableCasts == (bestTarget.availableCasts or 0) and itemInfo.stackCount > bestTarget.itemInfo.stackCount then
-			shouldReplace = true
-		end
-
-		if
-			not shouldReplace
-			and availableCasts == (bestTarget.availableCasts or 0)
-			and itemInfo.stackCount == bestTarget.itemInfo.stackCount
-			and isHigherBagSlotCandidate(bag, slot, bestTarget.bag, bestTarget.slot)
-		then
+		if not shouldReplace and isHigherBagSlotCandidate(bag, slot, bestTarget.bag, bestTarget.slot) then
 			shouldReplace = true
 		end
 
@@ -238,7 +205,10 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 		end,
 		registerEvents = function(controller)
 			controller.frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
-			controller.frame:RegisterEvent("UI_ERROR_MESSAGE")
+			controller.frame:RegisterEvent("BAG_UPDATE_DELAYED")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
 		end,
 	})
 	self.craftSalvageActionFrames[config.key] = actionController
@@ -326,7 +296,7 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 				)
 				lastSalvageTargetItemID = currentTargetItemInfo.itemID
 				itemLocation:SetBagAndSlot(target.bag, target.slot)
-				actionController:BeginPendingStart(nil)
+				actionController:BeginPendingStart(selection.recipeID)
 				_C_TradeSkillUI_CraftSalvage(selection.recipeID, casts, itemLocation, reagentPlan and reagentPlan.craftingReagents or nil)
 				SmartRez:MarkCraftSalvageCacheDirty()
 				return
@@ -354,23 +324,31 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 			return
 		end
 
-		if eventName == "UI_ERROR_MESSAGE" then
-			local errorType, message = ...
-			local handled = actionController:HandleUIError(errorType, message, "ui interrupted")
-			if not handled then
+		if eventName == "BAG_UPDATE_DELAYED" then
+			if actionController:HandleBagUpdateWhileWaitingForSpace() then
+				return
+			end
+		end
+
+		if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
+			local unitToken, _, spellID = ...
+			actionController:HandleUnitSpellcastFailed(unitToken, spellID, "spell failed")
+			return
+		end
+
+		if eventName == "UNIT_SPELLCAST_INTERRUPTED" then
+			local unitToken, _, spellID = ...
+			local selection = SmartRez:GetCraftSalvageSelection(config.key)
+			if unitToken ~= "player" or not selection or spellID ~= selection.recipeID then
 				return
 			end
 
-			local normalizedMessage = type(message) == "string" and _strlower(message) or nil
-			if normalizedMessage ~= _strlower(INTERRUPTED_ERROR_MESSAGE) and normalizedMessage ~= _strlower(UI_INTERRUPTED_ERROR_MESSAGE) then
+			if not actionController:IsBlocked() then
 				return
 			end
 
-			local inventorySources = SmartRez:GetInventorySources()
-			if inventorySources.playerBags ~= true or inventorySources.warbank == true then
-				return
-			end
-
+			actionController:Debug("spell event", eventName, unitToken, spellID or "nil")
+			actionController:Unlock("spell interrupted")
 			if bagSortSettling then
 				return
 			end
@@ -383,9 +361,8 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 				return
 			end
 
-			lastSortTime = _GetTime()
 			bagSortSettling = true
-			actionController:Debug("restacking item", lastSalvageTargetItemID, "after salvage ui error")
+			actionController:Debug("restacking item", lastSalvageTargetItemID, "after spell interrupted")
 			if SmartRez.RebuildInventoryCounts then
 				SmartRez:RebuildInventoryCounts()
 			end
@@ -400,7 +377,18 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 				SmartRez:RebuildInventoryCounts()
 			end
 			SmartRez:MarkCraftSalvageCacheDirty()
-			actionController:SetTimeoutSilently(SALVAGE_SORT_SETTLE_SECONDS)
+			if SmartRez:IsPlayerBagItemRestackActive(lastSalvageTargetItemID) then
+				actionController:SetTimeoutSilently(SALVAGE_SORT_SETTLE_SECONDS)
+				return
+			end
+
+			bagSortSettling = false
+			if SmartRez:GetFreeBagSlots() <= 0 then
+				actionController:BeginBagSpaceWait(nil, "waiting for bag space")
+				return
+			end
+
+			actionController:Unlock("bag restack settled")
 			return
 		end
 

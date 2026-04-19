@@ -15,10 +15,42 @@ local PHASE_ORDER = {
 local dispatcher = CreateFrame("Button", "GoldPrinterBtn", nil, "SecureActionButtonTemplate")
 local stateFrame = CreateFrame("Frame")
 
-dispatcher:RegisterForClicks("AnyDown")
+dispatcher:RegisterForClicks("AnyUp", "AnyDown")
 dispatcher:SetAttribute("type", "click")
 
 SmartRez.goldPrinterPhase = SmartRez.goldPrinterPhase or PHASE_CRAFT
+SmartRez.goldPrinterDebugState = SmartRez.goldPrinterDebugState or {}
+
+local function debugPrint(...)
+  if not (SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled()) then
+    return
+  end
+
+  print("SmartRez GP:", ...)
+end
+
+local function debugStateChanged(key, ...)
+  if not (SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled()) then
+    return
+  end
+
+  local parts = { ... }
+  local state = table.concat(parts, "|")
+  if SmartRez.goldPrinterDebugState[key] == state then
+    return
+  end
+
+  SmartRez.goldPrinterDebugState[key] = state
+  print("SmartRez GP:", ...)
+end
+
+local function buildClickMacro(buttonName, down)
+  if not buttonName or buttonName == "" then
+    return nil
+  end
+
+  return "/click " .. buttonName .. " LeftButton " .. (down and "1" or "0")
+end
 
 local function refreshViews()
   if SmartRez.RefreshViews then
@@ -28,12 +60,14 @@ end
 
 local function resetPhase()
   if SmartRez.goldPrinterPhase ~= PHASE_CRAFT then
+    debugPrint("reset phase", SmartRez.goldPrinterPhase, "->", PHASE_CRAFT)
     SmartRez.goldPrinterPhase = PHASE_CRAFT
     refreshViews()
   end
 end
 
 local function advancePhase()
+  local previousPhase = SmartRez.goldPrinterPhase
   if SmartRez.goldPrinterPhase == PHASE_CRAFT then
     SmartRez.goldPrinterPhase = PHASE_DISENCHANT
   elseif SmartRez.goldPrinterPhase == PHASE_DISENCHANT then
@@ -42,6 +76,7 @@ local function advancePhase()
     SmartRez.goldPrinterPhase = PHASE_CRAFT
   end
 
+  debugPrint("advance phase", previousPhase, "->", SmartRez.goldPrinterPhase)
   refreshViews()
 end
 
@@ -63,24 +98,31 @@ end
 
 local function hasCraftWork()
   if SmartRez.IsCraftRecipeActionBlocked and SmartRez:IsCraftRecipeActionBlocked(SHARD_CRAFT_KEY) then
+    debugStateChanged("craftPhase", "craft phase blocked")
     return false, false
   end
 
-  return SmartRez:GetFreeBagSlots() > SmartRez:GetGoldPrinterMinFreeSlots()
-    and SmartRez:GetCraftRecipeTarget(SHARD_CRAFT_KEY) ~= nil,
-    true
+  local hasFreeSlots = SmartRez:GetFreeBagSlots() > SmartRez:GetGoldPrinterMinFreeSlots()
+  local hasTarget = SmartRez:GetCraftRecipeTarget(SHARD_CRAFT_KEY) ~= nil
+  debugStateChanged("craftPhase", "craft phase", "freeSlotsOk", tostring(hasFreeSlots), "hasTarget", tostring(hasTarget))
+  return hasFreeSlots and hasTarget, true
 end
 
 local function hasDisenchantWork()
-  return SmartRez:HasDisenchantTarget()
+  local hasTarget = SmartRez:HasDisenchantTarget()
+  debugStateChanged("disenchantPhase", "disenchant phase", "locked", tostring(SmartRez:IsDisenchantLocked()), "hasTarget", tostring(hasTarget))
+  return hasTarget
 end
 
 local function hasShatterWork()
   if SmartRez.IsCraftSalvageActionBlocked and SmartRez:IsCraftSalvageActionBlocked(SHATTERING_KEY) then
+    debugStateChanged("shatterPhase", "shatter phase blocked")
     return false, false
   end
 
-  return SmartRez:GetCraftSalvageTarget(SHATTERING_KEY) ~= nil, true
+  local hasTarget = SmartRez:GetCraftSalvageTarget(SHATTERING_KEY) ~= nil
+  debugStateChanged("shatterPhase", "shatter phase", "hasTarget", tostring(hasTarget))
+  return hasTarget, true
 end
 
 local function getPhaseAction(phase)
@@ -88,8 +130,9 @@ local function getPhaseAction(phase)
     local canCraft, phaseComplete = hasCraftWork()
     if canCraft then
       return {
-        actionType = "click",
-        target = _G["ShardCraftBtn"],
+        actionType = "macro",
+        macroText = buildClickMacro("ShardCraftBtn", SmartRez:IsActiveCraftClickPhase(true)),
+        targetName = "ShardCraftBtn",
       }
     end
     return nil, phaseComplete
@@ -118,8 +161,9 @@ local function getPhaseAction(phase)
     local canShatter, phaseComplete = hasShatterWork()
     if canShatter then
       return {
-        actionType = "click",
-        target = _G["ShatterBtn"],
+        actionType = "macro",
+        macroText = buildClickMacro("ShatterBtn", SmartRez:IsActiveCraftClickPhase(true)),
+        targetName = "ShatterBtn",
       }
     end
     return nil, phaseComplete
@@ -130,10 +174,12 @@ local function chooseAction()
   for _ = 1, #PHASE_ORDER do
     local action, phaseComplete = getPhaseAction(SmartRez.goldPrinterPhase)
     if action then
+      debugStateChanged("chooseAction", "choose action", SmartRez.goldPrinterPhase, action.actionType, action.targetName or "macro")
       return action
     end
 
     if not phaseComplete then
+      debugStateChanged("chooseAction", "phase incomplete", SmartRez.goldPrinterPhase)
       return nil
     end
 
@@ -144,29 +190,31 @@ local function chooseAction()
   return nil
 end
 
-dispatcher:SetScript("PreClick", function(self)
+dispatcher:SetScript("PreClick", function(self, _, down)
+  if not SmartRez:IsActiveCraftClickPhase(down) then
+    return
+  end
+
   if InCombatLockdown() then
+    debugStateChanged("dispatch", "blocked in combat")
     return
   end
 
   local action = chooseAction()
   if not action then
-    self:SetAttribute("type", "click")
-    self:SetAttribute("clickbutton", nil)
+    debugStateChanged("dispatch", "no action")
+    self:SetAttribute("type", "macro")
     self:SetAttribute("macrotext", nil)
     return
   end
 
-  if action.actionType == "macro" then
-    self:SetAttribute("type", "macro")
-    self:SetAttribute("clickbutton", nil)
-    self:SetAttribute("macrotext", action.macroText)
-    return
+  if action.targetName then
+    action.macroText = buildClickMacro(action.targetName, down)
   end
 
-  self:SetAttribute("type", "click")
-  self:SetAttribute("clickbutton", action.target)
-  self:SetAttribute("macrotext", nil)
+  debugStateChanged("dispatch", "dispatch macro", action.targetName or "custom")
+  self:SetAttribute("type", "macro")
+  self:SetAttribute("macrotext", action.macroText)
 end)
 
 dispatcher:SetScript("PostClick", function(self)
@@ -174,8 +222,7 @@ dispatcher:SetScript("PostClick", function(self)
     return
   end
 
-  self:SetAttribute("type", "click")
-  self:SetAttribute("clickbutton", nil)
+  self:SetAttribute("type", "macro")
   self:SetAttribute("macrotext", nil)
 end)
 
