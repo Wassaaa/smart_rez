@@ -97,7 +97,9 @@
     "UNKNOWN",
     "TogglePVPUI",
     "BINDING_NAME_TOGGLEPROFESSIONBOOK",
-    "ToggleFrame"
+    "ToggleFrame",
+    "ITEM_QUALITY_COLORS",
+    "ERR_INV_FULL"
   ],
   "Lua.diagnostics.disable": ["assign-type-mismatch"],
   "Lua.runtime.builtin": {
