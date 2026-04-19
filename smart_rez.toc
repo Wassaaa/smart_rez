@@ -9,6 +9,7 @@
 ## SavedVariablesPerCharacter: SmartRezDB
 embeds.xml
 core.lua
+playerBagRestack.lua
 craftCore.lua
 professionProxy.lua
 menuProbe.lua

@@ -7,9 +7,13 @@ local _GetTime = GetTime
 local _ItemLocation = ItemLocation
 local _floor = math.floor
 local _huge = math.huge
+local _strlower = string.lower
 
 local SALVAGE_START_TIMEOUT_SECONDS = 1
 local SALVAGE_ACTIVITY_TIMEOUT_SECONDS = 2
+local SALVAGE_SORT_SETTLE_SECONDS = 1
+local INTERRUPTED_ERROR_MESSAGE = "Interrupted"
+local UI_INTERRUPTED_ERROR_MESSAGE = "UI Interrupted"
 
 local function buildCraftingReagents(reagents, numCasts)
 	local craftingReagents = {}
@@ -29,6 +33,14 @@ local function buildCraftingReagents(reagents, numCasts)
 	end
 
 	return craftingReagents
+end
+
+local function isHigherBagSlotCandidate(bag, slot, existingBag, existingSlot)
+	if bag ~= existingBag then
+		return bag > existingBag
+	end
+
+	return slot > existingSlot
 end
 
 function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
@@ -112,6 +124,15 @@ function SmartRez:RebuildCraftSalvageCache()
 						shouldReplace = true
 					end
 
+					if
+						not shouldReplace
+						and availableCasts == (existingTarget.availableCasts or 0)
+						and itemInfo.stackCount == existingTarget.itemInfo.stackCount
+						and isHigherBagSlotCandidate(bag, slot, existingTarget.bag, existingTarget.slot)
+					then
+						shouldReplace = true
+					end
+
 					if not shouldReplace and selection.preferLargestStack and itemInfo.stackCount > existingTarget.itemInfo.stackCount then
 						shouldReplace = true
 					end
@@ -166,6 +187,15 @@ function SmartRez:GetBestCraftSalvageLiveTarget(professionKey)
 			shouldReplace = true
 		end
 
+		if
+			not shouldReplace
+			and availableCasts == (bestTarget.availableCasts or 0)
+			and itemInfo.stackCount == bestTarget.itemInfo.stackCount
+			and isHigherBagSlotCandidate(bag, slot, bestTarget.bag, bestTarget.slot)
+		then
+			shouldReplace = true
+		end
+
 		if shouldReplace then
 			bestTarget = {
 				bag = bag,
@@ -190,6 +220,8 @@ end
 function SmartRez:RegisterCraftSalvageProfession(config)
 	local itemLocation = _ItemLocation:CreateEmpty()
 	local lastSortTime = 0
+	local bagSortSettling = false
+	local lastSalvageTargetItemID = nil
 
 	self.craftSalvageProfessions[config.key] = config
 	self.craftSalvageActionFrames = self.craftSalvageActionFrames or {}
@@ -219,6 +251,10 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 	end
 
 	self:CreateCraftActionButton(actionController, config.buttonName, function()
+		if bagSortSettling and not actionController:IsBlocked() then
+			bagSortSettling = false
+		end
+
 		if not SmartRez:HasProfession(config.professionID) then
 			actionController:Debug("skip", "profession missing")
 			return
@@ -288,6 +324,7 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 					"requiredStack", selection.requiredStack or "nil",
 					"casts", casts
 				)
+				lastSalvageTargetItemID = currentTargetItemInfo.itemID
 				itemLocation:SetBagAndSlot(target.bag, target.slot)
 				actionController:BeginPendingStart(nil)
 				_C_TradeSkillUI_CraftSalvage(selection.recipeID, casts, itemLocation, reagentPlan and reagentPlan.craftingReagents or nil)
@@ -318,7 +355,57 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 		end
 
 		if eventName == "UI_ERROR_MESSAGE" then
-			actionController:HandleUIError(..., "ui interrupted")
+			local errorType, message = ...
+			local handled = actionController:HandleUIError(errorType, message, "ui interrupted")
+			if not handled then
+				return
+			end
+
+			local normalizedMessage = type(message) == "string" and _strlower(message) or nil
+			if normalizedMessage ~= _strlower(INTERRUPTED_ERROR_MESSAGE) and normalizedMessage ~= _strlower(UI_INTERRUPTED_ERROR_MESSAGE) then
+				return
+			end
+
+			local inventorySources = SmartRez:GetInventorySources()
+			if inventorySources.playerBags ~= true or inventorySources.warbank == true then
+				return
+			end
+
+			if bagSortSettling then
+				return
+			end
+
+			if not lastSalvageTargetItemID then
+				return
+			end
+
+			if not SmartRez.StartPlayerBagItemRestack or not SmartRez:StartPlayerBagItemRestack(lastSalvageTargetItemID) then
+				return
+			end
+
+			lastSortTime = _GetTime()
+			bagSortSettling = true
+			actionController:Debug("restacking item", lastSalvageTargetItemID, "after salvage ui error")
+			if SmartRez.RebuildInventoryCounts then
+				SmartRez:RebuildInventoryCounts()
+			end
+			SmartRez:MarkCraftSalvageCacheDirty()
+			actionController:BeginExternalWait(SALVAGE_SORT_SETTLE_SECONDS, "bag restack settle", "bag restack settle timeout")
+			actionFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+			return
+		end
+
+		if eventName == "BAG_UPDATE_DELAYED" and bagSortSettling then
+			if SmartRez.RebuildInventoryCounts then
+				SmartRez:RebuildInventoryCounts()
+			end
+			SmartRez:MarkCraftSalvageCacheDirty()
+			actionController:SetTimeoutSilently(SALVAGE_SORT_SETTLE_SECONDS)
+			return
+		end
+
+		if not actionController:IsBlocked() and bagSortSettling then
+			bagSortSettling = false
 		end
 	end)
 

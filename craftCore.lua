@@ -65,6 +65,7 @@ function SmartRez:CreateCraftActionController(options)
 		isWaitingForCraftStart = false,
 		isCraftInProgress = false,
 		expectedSpellID = nil,
+		timeoutExpiredReason = nil,
 		activityTimeoutRetryAttempts = 0,
 		activityTimeoutRetryAt = 0,
 	}
@@ -90,6 +91,7 @@ function SmartRez:CreateCraftActionController(options)
 		self.isWaitingForCraftStart = false
 		self.isCraftInProgress = false
 		self.expectedSpellID = nil
+		self.timeoutExpiredReason = nil
 		self.activityTimeoutRetryAttempts = 0
 		self.activityTimeoutRetryAt = 0
 		self.frame:UnregisterAllEvents()
@@ -113,14 +115,7 @@ function SmartRez:CreateCraftActionController(options)
 		self.pendingUnlockAt = self.unBlockButton
 	end
 
-	function controller:BeginPendingStart(expectedSpellID)
-		self.isWaitingForCraftStart = true
-		self.isCraftInProgress = false
-		self.expectedSpellID = expectedSpellID
-		self:SetTimeout(self.options.startTimeoutSeconds or 1, "pending craft start")
-		if type(self.options.registerEvents) == "function" then
-			self.options.registerEvents(self)
-		end
+	function controller:EnsureOnUpdate()
 		self.frame:SetScript("OnUpdate", function()
 			if self.isCraftInProgress and self.activityTimeoutRetryAttempts > 0 and _GetTime() >= self.activityTimeoutRetryAt then
 				local timeoutSeconds, hasLiveCastInfo = SmartRez:GetActiveCraftTimeout(
@@ -142,17 +137,43 @@ function SmartRez:CreateCraftActionController(options)
 				if self.isCraftInProgress then
 					self:Unlock(self.options.activityTimeoutReason or "activity timeout")
 				else
-					self:Debug("lock", "pending craft timed out")
-					self:Unlock(self.options.startTimeoutReason or "craft start timeout")
+					if self.isWaitingForCraftStart then
+						self:Debug("lock", "pending craft timed out")
+					end
+					self:Unlock(self.timeoutExpiredReason or self.options.startTimeoutReason or "timeout")
 				end
 			end
 		end)
+	end
+
+	function controller:BeginPendingStart(expectedSpellID)
+		self.isWaitingForCraftStart = true
+		self.isCraftInProgress = false
+		self.expectedSpellID = expectedSpellID
+		self.timeoutExpiredReason = self.options.startTimeoutReason or "craft start timeout"
+		self:SetTimeout(self.options.startTimeoutSeconds or 1, "pending craft start")
+		if type(self.options.registerEvents) == "function" then
+			self.options.registerEvents(self)
+		end
+		self:EnsureOnUpdate()
+	end
+
+	function controller:BeginExternalWait(seconds, reason, timeoutReason)
+		self.isWaitingForCraftStart = false
+		self.isCraftInProgress = false
+		self.expectedSpellID = nil
+		self.timeoutExpiredReason = timeoutReason or reason or "wait timeout"
+		self.activityTimeoutRetryAttempts = 0
+		self.activityTimeoutRetryAt = 0
+		self:SetTimeout(seconds, reason or "wait")
+		self:EnsureOnUpdate()
 	end
 
 	function controller:RefreshActivityTimeout(seconds, reason)
 		local wasCraftInProgress = self.isCraftInProgress
 		self.isWaitingForCraftStart = false
 		self.isCraftInProgress = true
+		self.timeoutExpiredReason = self.options.activityTimeoutReason or "activity timeout"
 		local timeoutSeconds, hasLiveCastInfo = SmartRez:GetActiveCraftTimeout(
 			seconds or self.options.activityTimeoutSeconds or 2,
 			self.options.activityTimeoutPaddingSeconds
