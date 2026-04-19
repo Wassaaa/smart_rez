@@ -10,6 +10,7 @@ SmartRez.managedFrames = SmartRez.managedFrames or {}
 ---@field frame table
 ---@field tabs AceGUITabGroup
 ---@field selectedGroup string?
+---@field scrollStatuses table<string, table>
 local automationConfigFrame
 local WINDOW_WIDTH = 680
 local WINDOW_HEIGHT = 600
@@ -392,8 +393,9 @@ local function renderItemIconFilterGroup(parent, config)
 	help:SetText(colorize("A5D6FF", config.helpText))
 	group:AddChild(help)
 
+	local summary
 	if config.summaryText then
-		local summary = AceGUI:Create("Label")
+		summary = AceGUI:Create("Label")
 		summary:SetFullWidth(true)
 		summary:SetText(config.summaryText)
 		group:AddChild(summary)
@@ -405,11 +407,16 @@ local function renderItemIconFilterGroup(parent, config)
 
 	local statusLabel = AceGUI:Create("Label")
 	statusLabel:SetFullWidth(true)
-	statusLabel:SetText(colorize(
-		"7D8590",
-		selectedCount == 0 and "No whitelist entries. Click icons to build one, or leave it empty."
-			or ("Selected " .. tostring(selectedCount) .. " item(s). Click highlighted icons to remove them.")
-	))
+	local function updateStatusLabel()
+		selectedSet = config.getSelectedSet()
+		selectedCount = getItemSetCount(selectedSet)
+		statusLabel:SetText(colorize(
+			"7D8590",
+			selectedCount == 0 and "No whitelist entries. Click icons to build one, or leave it empty."
+				or ("Selected " .. tostring(selectedCount) .. " item(s). Click highlighted icons to remove them.")
+		))
+	end
+	updateStatusLabel()
 	group:AddChild(statusLabel)
 
 	local controlRow = AceGUI:Create("SimpleGroup")
@@ -450,12 +457,32 @@ local function renderItemIconFilterGroup(parent, config)
 		icon:SetImage(itemIcon or 134400)
 		icon:SetImageSize(ITEM_ICON_SIZE, ITEM_ICON_SIZE)
 		icon:SetLabel(colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount)))
+		local function updateIconSelectionState()
+			selectedSet = config.getSelectedSet()
+			isExplicitlySelected = selectedSet[itemID] == true
+			isSelected = isExplicitlySelected
+
+			if icon.frame and icon.frame.LockHighlight and icon.frame.UnlockHighlight then
+				if isSelected then
+					icon.frame:LockHighlight()
+				else
+					icon.frame:UnlockHighlight()
+				end
+			end
+
+			updateFilterIconChrome(icon, reagentQuality, useMidnightQualityIcons, isSelected)
+			updateStatusLabel()
+			if summary and config.getSummaryText then
+				summary:SetText(config.getSummaryText())
+			end
+		end
 		icon:SetCallback("OnClick", function()
 			if isExplicitlySelected then
 				config.removeItemFunc(itemID)
 			else
 				config.addItemFunc(itemID)
 			end
+			updateIconSelectionState()
 		end)
 		icon:SetCallback("OnEnter", function(widget)
 			GameTooltip:SetOwner(widget.frame, "ANCHOR_RIGHT")
@@ -469,15 +496,7 @@ local function renderItemIconFilterGroup(parent, config)
 			GameTooltip:Hide()
 		end)
 
-		if icon.frame and icon.frame.LockHighlight and icon.frame.UnlockHighlight then
-			if isSelected then
-				icon.frame:LockHighlight()
-			else
-				icon.frame:UnlockHighlight()
-			end
-		end
-
-		updateFilterIconChrome(icon, reagentQuality, useMidnightQualityIcons, isSelected)
+		updateIconSelectionState()
 
 		if icon.image and icon.image.SetVertexColor then
 			if itemCount > 0 then
@@ -613,7 +632,7 @@ local function renderGoldPrinterGroup(parent)
 	goldPrinterSlider:SetSliderValues(1, 20, 1)
 	goldPrinterSlider:SetValue(SmartRez:GetGoldPrinterMinFreeSlots())
 	goldPrinterSlider:SetCallback("OnValueChanged", function(_, _, value)
-		SmartRez:SetGoldPrinterMinFreeSlots(math.floor((value or 1) + 0.5))
+		SmartRez:SetGoldPrinterMinFreeSlots(math.floor((value or 1) + 0.5), true)
 	end)
 	goldPrinterGroup:AddChild(goldPrinterSlider)
 
@@ -739,15 +758,18 @@ local function renderCraftSalvageTab(parent, profession)
 		title = "Salvage Targets",
 		helpText = "Items " .. whitelistLabel .. " may salvage. Click icons to build a narrowed target list, or leave it empty.",
 		summaryText = colorize("79C0FF", "Whitelist entries: " .. tostring(getItemSetCount(SmartRez:GetCraftSalvageWhitelist(profession.key)))),
+		getSummaryText = function()
+			return colorize("79C0FF", "Whitelist entries: " .. tostring(getItemSetCount(SmartRez:GetCraftSalvageWhitelist(profession.key))))
+		end,
 		availableItemIDs = selection and selection.salvageTargetItemIDs or {},
 		getSelectedSet = function()
 			return SmartRez:GetCraftSalvageWhitelist(profession.key)
 		end,
 		addItemFunc = function(itemID)
-			SmartRez:AddCraftSalvageWhitelistItem(profession.key, itemID)
+			SmartRez:AddCraftSalvageWhitelistItem(profession.key, itemID, true)
 		end,
 		removeItemFunc = function(itemID)
-			SmartRez:RemoveCraftSalvageWhitelistItem(profession.key, itemID)
+			SmartRez:RemoveCraftSalvageWhitelistItem(profession.key, itemID, true)
 		end,
 	})
 
@@ -764,15 +786,22 @@ local function renderCraftSalvageTab(parent, profession)
 				reagentSlot.quantityRequired or 0,
 				getItemSetCount(SmartRez:GetCraftSalvageReagentWhitelist(profession.key, reagentSlot.dataSlotIndex))
 			)),
+			getSummaryText = function()
+				return colorize("79C0FF", string.format(
+					"Need: %d  |  Whitelist entries: %d",
+					reagentSlot.quantityRequired or 0,
+					getItemSetCount(SmartRez:GetCraftSalvageReagentWhitelist(profession.key, reagentSlot.dataSlotIndex))
+				))
+			end,
 			availableItemIDs = reagentSlot.allowedItemIDs or {},
 			getSelectedSet = function()
 				return SmartRez:GetCraftSalvageReagentWhitelist(profession.key, reagentSlot.dataSlotIndex)
 			end,
 			addItemFunc = function(itemID)
-				SmartRez:AddCraftSalvageReagentWhitelistItem(profession.key, reagentSlot.dataSlotIndex, itemID)
+				SmartRez:AddCraftSalvageReagentWhitelistItem(profession.key, reagentSlot.dataSlotIndex, itemID, true)
 			end,
 			removeItemFunc = function(itemID)
-				SmartRez:RemoveCraftSalvageReagentWhitelistItem(profession.key, reagentSlot.dataSlotIndex, itemID)
+				SmartRez:RemoveCraftSalvageReagentWhitelistItem(profession.key, reagentSlot.dataSlotIndex, itemID, true)
 			end,
 		})
 	end
@@ -802,6 +831,11 @@ local function renderAutomationGroup(tabGroup, groupValue)
 	scroll:SetLayout("List")
 	scroll:SetFullWidth(true)
 	scroll:SetFullHeight(true)
+	if automationConfigFrame then
+		automationConfigFrame.scrollStatuses = automationConfigFrame.scrollStatuses or {}
+		automationConfigFrame.scrollStatuses[groupValue] = automationConfigFrame.scrollStatuses[groupValue] or {}
+		scroll:SetStatusTable(automationConfigFrame.scrollStatuses[groupValue])
+	end
 	tabGroup:AddChild(scroll)
 
 	if groupValue == "goldprinter" then
@@ -833,6 +867,7 @@ local function createAutomationConfigWindow()
 	automationConfigFrame:SetCallback("OnClose", function(widget)
 		widget:Hide()
 	end)
+	automationConfigFrame.scrollStatuses = {}
 
 	-- TabGroup works best with an outer Fill layout and an inner ScrollFrame per tab.
 	automationConfigFrame.tabs = AceGUI:Create("TabGroup")

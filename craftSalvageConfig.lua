@@ -396,7 +396,7 @@ local function itemListContains(itemIDs, itemID)
 	return false
 end
 
-function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID)
+function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh)
 	if not professionKey or not itemID or not self.craftSalvageProfessions[professionKey] then
 		return
 	end
@@ -410,10 +410,12 @@ function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID)
 	local whitelist = self:GetCraftSalvageWhitelist(professionKey)
 	whitelist[itemID] = true
 	self:MarkCraftSalvageCacheDirty()
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
 end
 
-function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID)
+function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh)
 	if not professionKey or not dataSlotIndex or not itemID or not self.craftSalvageProfessions[professionKey] then
 		return
 	end
@@ -437,21 +439,27 @@ function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotInd
 	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
 	whitelist[itemID] = true
 	self:MarkCraftSalvageCacheDirty()
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
 end
 
-function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID)
+function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh)
 	local whitelist = self:GetCraftSalvageWhitelist(professionKey)
 	whitelist[itemID] = nil
 	self:MarkCraftSalvageCacheDirty()
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
 end
 
-function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID)
+function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh)
 	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
 	whitelist[itemID] = nil
 	self:MarkCraftSalvageCacheDirty()
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
 end
 
 local function buildAllowedItemSet(allowedItemIDs, customWhitelist)

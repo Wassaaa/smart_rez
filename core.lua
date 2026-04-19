@@ -205,10 +205,10 @@ function SmartRez:GetGoldPrinterMinFreeSlots()
 	return self.db.goldPrinter.minFreeSlots or self.goldPrinterMinFreeSlots
 end
 
-function SmartRez:SetGoldPrinterMinFreeSlots(value)
+function SmartRez:SetGoldPrinterMinFreeSlots(value, skipRefresh)
 	self:EnsureConfig()
 	self.db.goldPrinter.minFreeSlots = value or self.goldPrinterMinFreeSlots
-	if self.RefreshViews then
+	if not skipRefresh and self.RefreshViews then
 		self:RefreshViews()
 	end
 end
@@ -420,7 +420,7 @@ function SmartRez:WatchProfessionFrame()
 	self:UpdateCurrentProfessionState()
 end
 
-function SmartRez:AddDisenchantWhitelistItem(itemID)
+function SmartRez:AddDisenchantWhitelistItem(itemID, skipRefresh)
 	if not itemID then
 		return
 	end
@@ -430,16 +430,20 @@ function SmartRez:AddDisenchantWhitelistItem(itemID)
 	if self.RefreshDisenchantButton then
 		self:RefreshDisenchantButton()
 	end
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
 end
 
-function SmartRez:RemoveDisenchantWhitelistItem(itemID)
+function SmartRez:RemoveDisenchantWhitelistItem(itemID, skipRefresh)
 	local whitelist = self:GetDisenchantWhitelist()
 	whitelist[itemID] = nil
 	if self.RefreshDisenchantButton then
 		self:RefreshDisenchantButton()
 	end
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
 end
 
 function SmartRez:LoadRecipeCraftFromSelection(configKey)
