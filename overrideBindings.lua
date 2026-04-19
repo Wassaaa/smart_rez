@@ -462,9 +462,10 @@ local function buildAceOptions()
         },
         debugtoggle = {
           type = "toggle",
-          name = "Enable debug messages",
+          name = "Debug",
           desc = "Print lightweight chat debug messages for Smart Rez modules.",
           order = 9,
+          width = "full",
           set = function(_, value)
             SmartRez:SetDebugEnabled(value)
           end,

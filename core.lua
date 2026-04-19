@@ -14,8 +14,11 @@ SmartRez.craftSalvageRecipes = {}
 SmartRez.craftSalvageCache = {}
 SmartRez.craftSalvageCacheDirty = true
 SmartRez.craftRecipeActions = {}
+SmartRez.craftRecipeActionFrames = {}
 SmartRez.craftRecipeCache = {}
 SmartRez.craftRecipeCacheDirty = true
+SmartRez.craftingItemCounts = {}
+SmartRez.cachedFreeBagSlots = nil
 SmartRez.knownProfessions = {}
 SmartRez.goldPrinterMinFreeSlots = 4
 SmartRez.tsmLabelClickCooldown = 0.25
@@ -37,8 +40,7 @@ SmartRez.dbDefaults = {
 	salvageSelections = {},
 	inventorySources = {
 		playerBags = true,
-		characterBank = true,
-		warbank = true,
+		warbank = false,
 	},
 	professionProxy = {
 		visible = true,
@@ -535,6 +537,36 @@ function SmartRez:MarkCraftRecipeCacheDirty()
 	self.craftRecipeCacheDirty = true
 end
 
+function SmartRez:RebuildInventoryCounts()
+	local itemCounts = {}
+	local freeSlots = 0
+
+	self:ForEachCraftingItemSourceSlot(function(bag, slot)
+		local itemInfo = _C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)
+		if itemInfo and itemInfo.itemID then
+			itemCounts[itemInfo.itemID] = (itemCounts[itemInfo.itemID] or 0) + (itemInfo.stackCount or 0)
+		end
+	end)
+
+	for _, bag in ipairs(self:GetPlayerOutputBagContainerIDs()) do
+		if _C_GetContainerNumFreeSlots then
+			local bagFreeSlots, bagFamily = _C_GetContainerNumFreeSlots(bag)
+			if bagFamily == 0 then
+				freeSlots = freeSlots + (bagFreeSlots or 0)
+			end
+		else
+			for slot = 1, (_C_GetContainerNumSlots and _C_GetContainerNumSlots(bag) or 0) do
+				if not (_C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)) then
+					freeSlots = freeSlots + 1
+				end
+			end
+		end
+	end
+
+	self.craftingItemCounts = itemCounts
+	self.cachedFreeBagSlots = freeSlots
+end
+
 function SmartRez:GetPlayerBagContainerIDs()
 	local bagIndex = Enum and Enum.BagIndex or {}
 	local containerIDs = {
@@ -582,19 +614,6 @@ function SmartRez:GetWarbankContainerIDs()
 	return containerIDs
 end
 
-function SmartRez:GetCharacterBankContainerIDs()
-	local bagIndex = Enum and Enum.BagIndex or {}
-	local containerIDs = {}
-
-	appendContainerRange(
-		containerIDs,
-		bagIndex.CharacterBankTab_1,
-		getInventoryConstant("NumCharacterBankSlots", 0)
-	)
-
-	return containerIDs
-end
-
 function SmartRez:GetCraftingItemSourceContainerIDs()
 	local inventorySources = self:GetInventorySources()
 	local containerIDs = {}
@@ -607,10 +626,6 @@ function SmartRez:GetCraftingItemSourceContainerIDs()
 
 	if inventorySources.playerBags ~= false then
 		appendContainers(self:GetPlayerBagContainerIDs())
-	end
-
-	if inventorySources.characterBank == true then
-		appendContainers(self:GetCharacterBankContainerIDs())
 	end
 
 	if inventorySources.warbank == true then
@@ -647,40 +662,23 @@ function SmartRez:GetCraftingItemCount(itemID)
 		return 0
 	end
 
-	local itemCount = 0
+	if self.craftingItemCounts == nil then
+		self:RebuildInventoryCounts()
+	end
 
-	self:ForEachCraftingItemSourceSlot(function(bag, slot)
-		local itemInfo = _C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)
-		if itemInfo and itemInfo.itemID == itemID then
-			itemCount = itemCount + (itemInfo.stackCount or 0)
-		end
-	end)
-
-	return itemCount
+	return self.craftingItemCounts[itemID] or 0
 end
 
 function SmartRez:GetFreeBagSlots()
-	local freeSlots = 0
-
-	for _, bag in ipairs(self:GetPlayerOutputBagContainerIDs()) do
-		if _C_GetContainerNumFreeSlots then
-			local bagFreeSlots, bagFamily = _C_GetContainerNumFreeSlots(bag)
-			if bagFamily == 0 then
-				freeSlots = freeSlots + (bagFreeSlots or 0)
-			end
-		else
-			for slot = 1, (_C_GetContainerNumSlots and _C_GetContainerNumSlots(bag) or 0) do
-				if not (_C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)) then
-					freeSlots = freeSlots + 1
-				end
-			end
-		end
+	if self.cachedFreeBagSlots == nil then
+		self:RebuildInventoryCounts()
 	end
 
-	return freeSlots
+	return self.cachedFreeBagSlots or 0
 end
 
 function SmartRez:HandleInventoryChanged()
+	self:RebuildInventoryCounts()
 	self:MarkCraftSalvageCacheDirty()
 	self:MarkCraftRecipeCacheDirty()
 

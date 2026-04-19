@@ -1,5 +1,6 @@
 local SmartRez = _G.SmartRez
 local _C_OpenTradeSkill = C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill
+local _C_UseContainerItem = C_Container and C_Container.UseContainerItem
 local button
 
 local function getHoveredItemID()
@@ -44,12 +45,37 @@ local function findLargestWarbankStack(itemID)
 	return bestTarget
 end
 
-local function buildWarbankGrabMacroText(target)
-	if not target or target.bag == nil or target.slot == nil then
+local function findSmallestWarbankStackUnderCount(itemID, maxStackCount)
+	if not itemID or not maxStackCount or maxStackCount <= 0 then
 		return nil
 	end
 
-	return string.format("/use %d %d", target.bag, target.slot)
+	local bestTarget
+
+	SmartRez:ForEachContainerSlot(SmartRez:GetWarbankContainerIDs(), function(bag, slot)
+		local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
+		if not itemInfo or itemInfo.itemID ~= itemID then
+			return false
+		end
+
+		local stackCount = itemInfo.stackCount or 0
+		if stackCount <= 0 or stackCount >= maxStackCount then
+			return false
+		end
+
+		if not bestTarget or stackCount < bestTarget.stackCount then
+			bestTarget = {
+				itemID = itemID,
+				bag = bag,
+				slot = slot,
+				stackCount = stackCount,
+			}
+		end
+
+		return false
+	end)
+
+	return bestTarget
 end
 
 function SmartRez:GetHoveredWarbankItemID()
@@ -60,11 +86,24 @@ function SmartRez:GetWarbankGrabTarget(itemID)
 	return findLargestWarbankStack(itemID or getHoveredItemID())
 end
 
+function SmartRez:GetWarbankPartialStackTarget(itemID, maxStackCount)
+	return findSmallestWarbankStackUnderCount(itemID, maxStackCount)
+end
+
 function SmartRez:HasWarbankGrabTarget()
 	return self:GetWarbankGrabTarget() ~= nil
 end
 
-function SmartRez:PrepareWarbankGrabMacro()
+function SmartRez:TryGrabWarbankTarget(target)
+	if not target or target.bag == nil or target.slot == nil or not _C_UseContainerItem then
+		return false
+	end
+
+	_C_UseContainerItem(target.bag, target.slot)
+	return true
+end
+
+function SmartRez:TryGrabHoveredWarbankItem()
 	local proxyProfessionID = self.GetDefaultProfessionProxyProfessionID and self:GetDefaultProfessionProxyProfessionID() or nil
 	if proxyProfessionID then
 		local proxyReady = self.IsProfessionProxyReady and self:IsProfessionProxyReady(proxyProfessionID) or false
@@ -74,32 +113,26 @@ function SmartRez:PrepareWarbankGrabMacro()
 			elseif _C_OpenTradeSkill then
 				_C_OpenTradeSkill(proxyProfessionID)
 			end
-			return nil
+			return false
 		end
 	end
 
 	local target = self:GetWarbankGrabTarget()
 	if not target then
-		return nil
+		return false
 	end
 
-	return buildWarbankGrabMacroText(target)
+	return self:TryGrabWarbankTarget(target)
 end
 
 button = CreateFrame("Button", "WarbankGrabBtn", nil, "SecureActionButtonTemplate")
 button:RegisterForClicks("AnyDown")
-button:SetAttribute("type", "macro")
-
-button:SetScript("PreClick", function(self)
+button:SetScript("OnClick", function()
 	if InCombatLockdown() then
 		return
 	end
 
-	self:SetAttribute("macrotext", SmartRez:PrepareWarbankGrabMacro())
-end)
-
-button:SetScript("PostClick", function(self)
-	self:SetAttribute("macrotext", nil)
+	SmartRez:TryGrabHoveredWarbankItem()
 end)
 
 SmartRez:RegisterBindableAction({

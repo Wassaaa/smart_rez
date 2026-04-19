@@ -62,8 +62,13 @@ local function getPhaseLabel(phase)
 end
 
 local function hasCraftWork()
+  if SmartRez.IsCraftRecipeActionBlocked and SmartRez:IsCraftRecipeActionBlocked(SHARD_CRAFT_KEY) then
+    return false, false
+  end
+
   return SmartRez:GetFreeBagSlots() > SmartRez:GetGoldPrinterMinFreeSlots()
-    and SmartRez:GetCraftRecipeTarget(SHARD_CRAFT_KEY) ~= nil
+    and SmartRez:GetCraftRecipeTarget(SHARD_CRAFT_KEY) ~= nil,
+    true
 end
 
 local function hasDisenchantWork()
@@ -71,18 +76,23 @@ local function hasDisenchantWork()
 end
 
 local function hasShatterWork()
-  return SmartRez:GetCraftSalvageTarget(SHATTERING_KEY) ~= nil
+  if SmartRez.IsCraftSalvageActionBlocked and SmartRez:IsCraftSalvageActionBlocked(SHATTERING_KEY) then
+    return false, false
+  end
+
+  return SmartRez:GetCraftSalvageTarget(SHATTERING_KEY) ~= nil, true
 end
 
 local function getPhaseAction(phase)
   if phase == PHASE_CRAFT then
-    if hasCraftWork() then
+    local canCraft, phaseComplete = hasCraftWork()
+    if canCraft then
       return {
         actionType = "click",
         target = _G["ShardCraftBtn"],
       }
     end
-    return nil, true
+    return nil, phaseComplete
   end
 
   if phase == PHASE_DISENCHANT then
@@ -105,13 +115,14 @@ local function getPhaseAction(phase)
   end
 
   if phase == PHASE_SHATTER then
-    if hasShatterWork() then
+    local canShatter, phaseComplete = hasShatterWork()
+    if canShatter then
       return {
         actionType = "click",
         target = _G["ShatterBtn"],
       }
     end
-    return nil, true
+    return nil, phaseComplete
   end
 end
 

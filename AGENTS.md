@@ -58,11 +58,12 @@ Retail secure-button behavior and profession-window access are easy places to re
 
 - Do not call `C_TradeSkillUI.OpenTradeSkill(...)` from passive refresh paths such as inventory scans, cache rebuilds, `Refresh...()` helpers, or config setters.
 - Passive refresh code may check readiness, but opening protected UI must happen only from an actual user click path.
-- When remote crafting sources such as character bank or warbank depend on the profession backend being open, use the profession-proxy helpers in `professionProxy.lua`:
+- When remote crafting sources such as warbank depend on the profession backend being open, use the profession-proxy helpers in `professionProxy.lua`:
   - `SmartRez:IsProfessionProxyReady(professionID)`
   - `SmartRez:OpenProfessionProxy(professionID)`
 - Prefer the existing profession proxy flow over direct one-off profession-opening logic in feature modules.
 - If remote storage cannot be scanned until the profession backend is open, treat that as a valid "priming" state rather than "no work exists".
+- Warbank crafting/salvage support exists, but it is not stable enough to assume as the default source. Prefer player bags by default unless the user is explicitly testing warbank behavior.
 
 ### Disenchant-specific secure pattern
 
@@ -99,7 +100,7 @@ Some secure buttons in this addon intentionally register both key-down and key-u
   - `GetCraftingItemSourceContainerIDs()`
   - `ForEachCraftingItemSourceSlot(...)`
   - `ForEachPlayerBagSlot(...)`
-- Be careful when changing source scans for disenchant. A player-bag-only scan may appear to fix timing bugs while silently breaking bank/warbank behavior.
+- Be careful when changing source scans for disenchant. A player-bag-only scan may appear to fix timing bugs while silently breaking warbank behavior.
 - If a workflow needs different behavior for local vs remote sources, separate readiness / access logic from target selection logic rather than forking the whole workflow.
 
 ## Debug Output
@@ -156,6 +157,16 @@ When implementing or refactoring features, build context from the best available
 2. nearby addons in the parent AddOns directory
 3. vendored library source in `Libs/`
 4. current web documentation for Retail/Midnight APIs and library behavior
+
+### Live game verification
+
+This project has a better-than-normal source of truth available during development: the user's live Retail client.
+
+- Do not guess WoW API globals, event names, event payloads, or return-value meanings from memory when they can be verified from the live game.
+- If a value is uncertain, ask the user for `/dump`, `/eventtrace`, or a tiny `/run print(...)` check instead of inventing a likely answer.
+- Treat live game dumps from the user as more authoritative than recalled knowledge.
+- Be explicit about what was verified versus what is still an inference.
+- Do not imply that Codex personally tested behavior in-game; only the user can run those live checks.
 
 ### Local addon references
 

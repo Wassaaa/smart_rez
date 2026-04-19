@@ -249,10 +249,6 @@ local function getInventorySourcesSummary()
 		enabledSources[#enabledSources + 1] = "bags"
 	end
 
-	if inventorySources.characterBank == true then
-		enabledSources[#enabledSources + 1] = "bank"
-	end
-
 	if inventorySources.warbank == true then
 		enabledSources[#enabledSources + 1] = "warbank"
 	end
@@ -271,7 +267,7 @@ local function renderInventorySourcesGroup(parent)
 
 	local help = AceGUI:Create("Label")
 	help:SetFullWidth(true)
-	help:SetText(colorize("A5D6FF", "Choose where Smart Rez looks for crafting, salvage, and disenchant items. Some flows may still require the relevant Blizzard UI to be opened first."))
+	help:SetText(colorize("A5D6FF", "Choose where Smart Rez looks for crafting, salvage, and disenchant items. Some flows may still require the relevant Blizzard UI to be opened first. Warbank support is available, but it is currently safest to leave it off unless you are actively testing it."))
 	group:AddChild(help)
 
 	local summary = AceGUI:Create("Label")
@@ -292,14 +288,6 @@ local function renderInventorySourcesGroup(parent)
 		setSource("playerBags", value)
 	end)
 	group:AddChild(bagCheck)
-
-	local bankCheck = AceGUI:Create("CheckBox")
-	bankCheck:SetLabel("Use character bank")
-	bankCheck:SetValue(inventorySources.characterBank == true)
-	bankCheck:SetCallback("OnValueChanged", function(_, _, value)
-		setSource("characterBank", value)
-	end)
-	group:AddChild(bankCheck)
 
 	local warbankCheck = AceGUI:Create("CheckBox")
 	warbankCheck:SetLabel("Use warbank")
@@ -629,13 +617,6 @@ local function renderGoldPrinterGroup(parent)
 	end)
 	goldPrinterGroup:AddChild(goldPrinterSlider)
 
-	local debugCheck = AceGUI:Create("CheckBox")
-	debugCheck:SetLabel("Enable debug messages")
-	debugCheck:SetValue(SmartRez:GetDebugEnabled())
-	debugCheck:SetCallback("OnValueChanged", function(_, _, value)
-		SmartRez:SetDebugEnabled(value)
-	end)
-	goldPrinterGroup:AddChild(debugCheck)
 end
 
 ---@param parent AceGUIContainer

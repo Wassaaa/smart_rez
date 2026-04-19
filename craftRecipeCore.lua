@@ -1,12 +1,7 @@
 local SmartRez = _G.SmartRez
 
 local _C_CraftRecipe = C_TradeSkillUI.CraftRecipe
-local _C_GetBaseProfessionInfo = C_TradeSkillUI.GetBaseProfessionInfo
-local _C_OpenTradeSkill = C_TradeSkillUI.OpenTradeSkill
-local _C_OpenRecipe = C_TradeSkillUI.OpenRecipe
 local _C_GetRecipeInfo = C_TradeSkillUI.GetRecipeInfo
-local _GetTime = GetTime
-local _UnitCastingInfo = UnitCastingInfo
 local _floor = math.floor
 local _min = math.min
 
@@ -92,8 +87,8 @@ function SmartRez:RebuildCraftRecipeCache()
 		local useDefaultReagents = resolveConfigValue(config, "useDefaultReagents")
 
 		if not requiredProfession or self:HasProfession(requiredProfession) then
-			local maxCrafts = config.getMaxCasts and config.getMaxCasts(config) or getMaxCraftsFromReagents(reagents)
-			local numCasts = maxCrafts > 0 and 1 or 0
+			local maxCrafts = getMaxCraftsFromReagents(reagents)
+			local numCasts = maxCrafts
 			local maxAllowedCasts = resolveConfigValue(config, "maxCasts")
 			local minRequiredCasts = resolveConfigValue(config, "minCasts") or 1
 
@@ -145,24 +140,37 @@ function SmartRez:GetCraftRecipeTarget(key)
 end
 
 function SmartRez:RegisterCraftRecipeAction(config)
-	local actionFrame = CreateFrame("Frame")
-	local castStartTime, castEndTime = nil, nil
-
 	if config.lockButton == nil then
 		config.lockButton = true
 	end
 
 	self.craftRecipeActions[config.key] = config
-	actionFrame.unBlockButton = 0
-	actionFrame.btn = CreateFrame("Button", config.buttonName, UIParent, "SecureActionButtonTemplate")
-	actionFrame.btn:RegisterForClicks("AnyUp", "AnyDown")
-
-	actionFrame.btn:SetScript("OnClick", function()
-		if actionFrame.unBlockButton > _GetTime() then
-			debugPrint(config, "blocked", actionFrame.unBlockButton - _GetTime())
-			return
-		end
-
+	local actionController = self:CreateCraftActionController({
+		key = config.key,
+		label = config.label,
+		debugPrefix = "Smart Rez: " .. config.label,
+		debugEnabled = function()
+			return resolveConfigValue(config, "debug") == true
+		end,
+		startTimeoutSeconds = 1,
+		activityTimeoutSeconds = 2,
+		activityTimeoutReason = "craft in progress timeout",
+		startTimeoutReason = "craft start timeout",
+		markDirty = function()
+			SmartRez:MarkCraftRecipeCacheDirty()
+		end,
+		registerEvents = function(controller)
+			controller.frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
+			controller.frame:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+			controller.frame:RegisterEvent("UI_ERROR_MESSAGE")
+		end,
+	})
+	local actionFrame = actionController.frame
+	self.craftRecipeActionFrames[config.key] = actionController
+	self:CreateCraftActionButton(actionController, config.buttonName, function()
 		local recipeID = resolveConfigValue(config, "recipeID")
 		local openTradeSkillID = resolveConfigValue(config, "openTradeSkillID")
 		local recipeLevel = resolveConfigValue(config, "recipeLevel")
@@ -171,20 +179,11 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		local requiredProfession = resolveConfigValue(config, "requiredProfession")
 		local useDefaultReagents = resolveConfigValue(config, "useDefaultReagents")
 
-		if openTradeSkillID then
-			local professionInfo = _C_GetBaseProfessionInfo and _C_GetBaseProfessionInfo()
-			if not professionInfo or professionInfo.professionID ~= openTradeSkillID then
-				debugPrint(config, "opening profession", openTradeSkillID, "current", professionInfo and professionInfo.professionID or "nil")
-				_C_OpenTradeSkill(openTradeSkillID)
-				return
-			end
-			debugPrint(config, "profession ready", professionInfo.professionID)
+		if not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
+			return
 		end
 
-		if _C_OpenRecipe then
-			debugPrint(config, "opening recipe", recipeID)
-			_C_OpenRecipe(recipeID)
-		end
+		SmartRez:OpenCraftRecipeByID(actionController, recipeID)
 
 		if _C_GetRecipeInfo then
 			local recipeInfo = _C_GetRecipeInfo(recipeID)
@@ -199,12 +198,14 @@ function SmartRez:RegisterCraftRecipeAction(config)
 				debugPrint(config, "stopping on recipe info gate")
 				return
 			end
+
+			actionController.expectedSpellID = recipeInfo.skillLineAbilityID
 		end
 
 		local target = SmartRez:GetCraftRecipeTarget(config.key)
 		if not target then
 			debugPrint(config, "no craft target", "profession", requiredProfession and tostring(SmartRez:HasProfession(requiredProfession)) or "none")
-			actionFrame:UnregisterAllEvents()
+			actionController:Unlock("no craft target")
 			return
 		end
 
@@ -225,10 +226,9 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		end
 
 		if config.lockButton then
-			actionFrame:RegisterEvents()
+			actionController:BeginPendingStart(actionController.expectedSpellID)
 		else
-			actionFrame:UnregisterAllEvents()
-			actionFrame.unBlockButton = 0
+			actionController:Unlock("lock disabled")
 		end
 
 		local result = _C_CraftRecipe(
@@ -242,30 +242,37 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		debugPrint(config, "craft call result", tostring(result))
 		SmartRez:MarkCraftRecipeCacheDirty()
 
-		if config.lockButton then
-			castStartTime, castEndTime = select(4, _UnitCastingInfo("player"))
-			debugPrint(config, "cast info", castStartTime or "nil", castEndTime or "nil")
-			if castStartTime and castEndTime then
-				actionFrame.unBlockButton = _GetTime() + ((castEndTime - castStartTime) / 1000)
-			end
+		if config.lockButton and result == false then
+			actionController:Unlock("craft call failed")
 		end
 	end)
 
-	function actionFrame:RegisterEvents()
-		self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-		self:RegisterEvent("UNIT_SPELLCAST_STOP")
-		self:RegisterEvent("UNIT_SPELLCAST_FAILED")
-		self:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
-		self:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-		self:SetScript("OnEvent", function(_, eventName, eventData)
-			if eventData == "player" then
-				debugPrint(config, "spell event", eventName)
-				actionFrame.unBlockButton = _GetTime()
-				SmartRez:MarkCraftRecipeCacheDirty()
-				actionFrame:UnregisterAllEvents()
+	actionFrame:SetScript("OnEvent", function(_, eventName, ...)
+		if eventName == "TRADE_SKILL_CRAFT_BEGIN" then
+			local spellID = ...
+			if actionController:HandleTradeSkillCraftBegin(spellID, "craft in progress") then
+				actionController:Debug("lock", "craft in progress", "spell", spellID or "nil")
 			end
-		end)
-	end
+			return
+		end
+
+		if eventName == "UPDATE_TRADESKILL_CAST_STOPPED" then
+			actionController:Debug("trade skill event", eventName)
+			actionController:Unlock("trade skill stopped")
+			return
+		end
+
+		if eventName == "UI_ERROR_MESSAGE" then
+			actionController:HandleUIError(...)
+			return
+		end
+
+		local unit = ...
+		if unit == "player" then
+			actionController:Debug("spell event", eventName)
+			actionController:Unlock(eventName)
+		end
+	end)
 
 	SmartRez:RegisterBindableAction({
 		key = config.key,
@@ -277,4 +284,13 @@ function SmartRez:RegisterCraftRecipeAction(config)
 	SmartRez:MarkCraftRecipeCacheDirty()
 
 	return actionFrame
+end
+
+function SmartRez:IsCraftRecipeActionBlocked(key)
+	local actionController = self.craftRecipeActionFrames and self.craftRecipeActionFrames[key]
+	if not actionController or not actionController.IsBlocked then
+		return false
+	end
+
+	return actionController:IsBlocked()
 end

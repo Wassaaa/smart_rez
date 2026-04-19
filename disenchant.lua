@@ -204,7 +204,7 @@ end
 
 function DE:HasRemoteInventorySourcesEnabled()
   local inventorySources = SmartRez:GetInventorySources()
-  return inventorySources.characterBank == true or inventorySources.warbank == true
+  return inventorySources.warbank == true
 end
 
 function DE:ShouldPrimeRemoteAccess()
