@@ -15,6 +15,10 @@ local function getAuctionatorBuyCommodityFrameTemplateMixin()
   return _G.AuctionatorBuyCommodityFrameTemplateMixin
 end
 
+local function getAuctionatorDirectSearchProviderMixin()
+  return _G.AuctionatorDirectSearchProviderMixin
+end
+
 local function getAuctionatorBuyButton()
   local frame = getAuctionatorBuyFrame()
   return frame and frame.DetailsContainer.BuyButton or nil
@@ -35,102 +39,18 @@ end
 SnipeAuctionator.frame = CreateFrame("Frame")
 SnipeAuctionator.isInitialized = false
 SnipeAuctionator.hooksInitialized = false
-SnipeAuctionator.purchaseLocked = false
-SnipeAuctionator.purchaseConfirmed = false
-
-local function setBuyButtonLocked(frame, locked)
+local function resetBuyButton(frame)
   local buyButton = frame and frame.DetailsContainer and frame.DetailsContainer.BuyButton or nil
   if not buyButton then
     return
   end
 
-  if locked then
-    buyButton:SetText("Buying...")
-    buyButton:Disable()
+  buyButton:SetText(AUCTIONATOR_L_BUY_NOW or "Buy Now")
+  if frame and frame.results and frame.GetPrices then
+    local _, totalPrice = frame:GetPrices()
+    buyButton:SetEnabled(totalPrice <= GetMoney())
   else
-    buyButton:SetText(AUCTIONATOR_L_BUY_NOW or "Buy Now")
-    if frame and frame.results and frame.GetPrices then
-      local _, totalPrice = frame:GetPrices()
-      buyButton:SetEnabled(totalPrice <= GetMoney())
-    else
-      buyButton:Disable()
-    end
-  end
-end
-
-local function lockPurchase(frame)
-  SnipeAuctionator.purchaseLocked = true
-  SnipeAuctionator.purchaseConfirmed = false
-  setBuyButtonLocked(frame, true)
-end
-
-local function markPurchaseConfirmed()
-  SnipeAuctionator.purchaseConfirmed = true
-end
-
-local function unlockPurchase(frame)
-  SnipeAuctionator.purchaseLocked = false
-  SnipeAuctionator.purchaseConfirmed = false
-  setBuyButtonLocked(frame or getAuctionatorBuyFrame(), false)
-end
-
-local function isPurchaseLocked(frame)
-  if SnipeAuctionator.purchaseLocked then
-    return true
-  end
-
-  if not frame then
-    return false
-  end
-
-  if frame.waitingForPurchase then
-    return true
-  end
-
-  if frame.FinalConfirmationDialog and frame.FinalConfirmationDialog:IsShown() then
-    return true
-  end
-
-  if frame.QuantityCheckConfirmationDialog and frame.QuantityCheckConfirmationDialog:IsShown() then
-    return true
-  end
-
-  return false
-end
-
-local function attachConfirmationHooks(frame)
-  if not frame or frame.smartRezConfirmationHooksAttached then
-    return
-  end
-
-  frame.smartRezConfirmationHooksAttached = true
-
-  if frame.FinalConfirmationDialog then
-    hooksecurefunc(frame.FinalConfirmationDialog, "SetDetails", function()
-      lockPurchase(frame)
-    end)
-    hooksecurefunc(frame.FinalConfirmationDialog, "ConfirmPurchase", function()
-      markPurchaseConfirmed()
-    end)
-    hooksecurefunc(frame.FinalConfirmationDialog, "OnHide", function()
-      if not SnipeAuctionator.purchaseConfirmed then
-        unlockPurchase(frame)
-      end
-    end)
-  end
-
-  if frame.QuantityCheckConfirmationDialog then
-    hooksecurefunc(frame.QuantityCheckConfirmationDialog, "SetDetails", function()
-      lockPurchase(frame)
-    end)
-    hooksecurefunc(frame.QuantityCheckConfirmationDialog, "ConfirmPurchase", function()
-      markPurchaseConfirmed()
-    end)
-    hooksecurefunc(frame.QuantityCheckConfirmationDialog, "OnHide", function()
-      if not SnipeAuctionator.purchaseConfirmed then
-        unlockPurchase(frame)
-      end
-    end)
+    buyButton:Disable()
   end
 end
 
@@ -204,13 +124,7 @@ buyNowProxyButton:SetScript("PreClick", function(self)
     return
   end
 
-  local frame = getAuctionatorBuyFrame()
-  if isPurchaseLocked(frame) then
-    self:SetAttribute("clickbutton", nil)
-    return
-  end
-
-  self:SetAttribute("clickbutton", frame and frame.DetailsContainer.BuyButton or nil)
+  self:SetAttribute("clickbutton", getAuctionatorBuyButton())
 end)
 buyNowProxyButton:SetScript("PostClick", function(self)
   if InCombatLockdown() then
@@ -300,49 +214,110 @@ function SnipeAuctionator:HookAuctionatorBuyCommodityFrame()
     return false
   end
 
+  local directSearchMixin = getAuctionatorDirectSearchProviderMixin()
+  if directSearchMixin and not directSearchMixin.smartRezMaxPriceHooked then
+    local originalProcessSearchResults = directSearchMixin.ProcessSearchResults
+    directSearchMixin.ProcessSearchResults = function(provider, addedResults, ...)
+      local maxPrice = provider
+        and provider.currentFilter
+        and provider.currentFilter.price
+        and provider.currentFilter.price.max
+        or nil
+
+      if maxPrice and maxPrice > 0 and addedResults then
+        for index = 1, #addedResults do
+          addedResults[index].smartRezMaxPrice = maxPrice
+        end
+      end
+
+      return originalProcessSearchResults(provider, addedResults, ...)
+    end
+
+    directSearchMixin.smartRezMaxPriceHooked = true
+  end
+
+  local originalOnEvent = AucMix.OnEvent
+  AucMix.OnEvent = function(frame, eventName, ...)
+    if eventName == "COMMODITY_PURCHASE_SUCCEEDED" then
+      return
+    end
+
+    return originalOnEvent(frame, eventName, ...)
+  end
+
+  local originalBuyClicked = AucMix.BuyClicked
+  AucMix.BuyClicked = function(frame, ...)
+    if frame.results == nil then
+      return
+    end
+
+    print("SnipeAuctionator: BuyClicked pre hook called")
+    return originalBuyClicked(frame, ...)
+  end
+
+  local originalReceiveEvent = AucMix.ReceiveEvent
+  AucMix.ReceiveEvent = function(frame, eventName, ...)
+    if eventName == Auctionator.Buying.Events.ShowCommodityBuy then
+      local rowData = ...
+      local itemID = rowData and rowData.itemKey and rowData.itemKey.itemID or nil
+      local savedQuantity = itemID and QuantityMemory[itemID] or nil
+      local shoppingListMaxPrice = rowData and rowData.smartRezMaxPrice or nil
+      local shoppingListQuantity = rowData and rowData.purchaseQuantity or nil
+
+      frame.smartRezRestoringQuantity = true
+      originalReceiveEvent(frame, eventName, ...)
+
+      syncSnipeFrame(frame, frame.expectedItemID)
+
+      if shoppingListMaxPrice and shoppingListMaxPrice > 0 and itemID then
+        PriceMemory[itemID] = 0
+        if frame.SnipeFrame and frame.SnipeFrame.price then
+          frame.SnipeFrame.price:SetAmount(0)
+        end
+      end
+
+      if shoppingListQuantity and shoppingListQuantity > 0 then
+        frame.selectedQuantity = shoppingListQuantity
+        frame:UpdateView()
+      elseif savedQuantity and savedQuantity > 0 then
+        frame.selectedQuantity = savedQuantity
+        frame:UpdateView()
+      end
+
+      frame.smartRezRestoringQuantity = false
+      return
+    end
+
+    return originalReceiveEvent(frame, eventName, ...)
+  end
+
+  local originalUpdateView = AucMix.UpdateView
+  AucMix.UpdateView = function(frame, ...)
+    if frame.expectedItemID then
+      syncSnipeFrame(frame, frame.expectedItemID)
+      if not frame.smartRezRestoringQuantity and frame.selectedQuantity and frame.selectedQuantity > 0 then
+        QuantityMemory[frame.expectedItemID] = frame.selectedQuantity
+      end
+    end
+
+    return originalUpdateView(frame, ...)
+  end
+
   -- Hook into OnLoad and create the snipe UI
   hooksecurefunc(AucMix, "OnLoad", function(frame)
     print("SnipeAuctionator: Hooked into AuctionatorBuyCommodityFrameTemplateMixin.OnLoad")
     if not frame.SnipeFrame then
       frame.SnipeFrame = self:CreateSnipeUI(frame.DetailsContainer)
     end
-    attachConfirmationHooks(frame)
-  end)
-
-  hooksecurefunc(AucMix, "ReceiveEvent", function(frame, eventName, ...)
-    if eventName ~= Auctionator.Buying.Events.ShowCommodityBuy then
-      return
-    end
-
-    local itemID = frame.expectedItemID
-    syncSnipeFrame(frame, itemID)
-
-    local savedQuantity = itemID and QuantityMemory[itemID] or nil
-    if savedQuantity and savedQuantity > 0 and frame.selectedQuantity ~= savedQuantity then
-      frame.selectedQuantity = savedQuantity
-      frame:UpdateView()
-    end
-  end)
-
-  hooksecurefunc(AucMix, "UpdateView", function(frame)
-    local itemID = frame.expectedItemID
-    if itemID then
-      syncSnipeFrame(frame, itemID)
-      if frame.selectedQuantity and frame.selectedQuantity > 0 then
-        QuantityMemory[itemID] = frame.selectedQuantity
-      end
-    end
-
-    if not isPurchaseLocked(frame) then
-      setBuyButtonLocked(frame, false)
-    end
-  end)
-
-  hooksecurefunc(AucMix, "ForceStartPurchase", function(frame)
-    lockPurchase(frame)
   end)
 
   hooksecurefunc(AucMix, "BuyClicked", function(frame)
+    local buyButton = frame and frame.DetailsContainer and frame.DetailsContainer.BuyButton or nil
+    if buyButton then
+      buyButton:SetText("Buying...")
+      buyButton:Disable()
+    end
+
     if frame.WidePriceRangeWarningDialog and frame.WidePriceRangeWarningDialog:IsShown() then
       frame.WidePriceRangeWarningDialog:StartPurchase()
     end
@@ -392,7 +367,7 @@ function SnipeAuctionator:HookAuctionatorBuyCommodityFrame()
         frame.FinalConfirmationDialog:Hide()
       end
 
-      unlockPurchase(frame)
+      resetBuyButton(frame)
       DEFAULT_CHAT_FRAME:AddMessage("Too rich, try again\n", 1, 1, 0)
     end
   end)
@@ -402,7 +377,6 @@ function SnipeAuctionator:HookAuctionatorBuyCommodityFrame()
     if not liveFrame.SnipeFrame then
       liveFrame.SnipeFrame = self:CreateSnipeUI(liveFrame.DetailsContainer)
     end
-    attachConfirmationHooks(liveFrame)
   end
 
   print("SnipeAuctionator: Successfully hooked into AuctionatorBuyCommodityFrameTemplateMixin")
@@ -413,14 +387,29 @@ end
 -- Register and handle events
 function SnipeAuctionator:RegisterEvents()
   self.frame:RegisterEvent("AUCTION_HOUSE_SHOW")
+  self.frame:RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
   self.frame:RegisterEvent("COMMODITY_PURCHASE_SUCCEEDED")
   self.frame:RegisterEvent("COMMODITY_PURCHASE_FAILED")
+  self.frame:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED")
   self.frame:RegisterEvent("COMMODITY_PRICE_UNAVAILABLE")
   self.frame:SetScript("OnEvent", function(_, eventName, eventData)
     if eventName == "AUCTION_HOUSE_SHOW" then
       SnipeAuctionator:HookAuctionatorBuyCommodityFrame()
+    elseif eventName == "AUCTION_HOUSE_THROTTLED_SYSTEM_READY" then
+      local frame = getAuctionatorBuyFrame()
+      if frame then
+        resetBuyButton(frame)
+      end
+    elseif eventName == "COMMODITY_SEARCH_RESULTS_UPDATED" then
+      local frame = getAuctionatorBuyFrame()
+      local snipeFrame = frame and frame.SnipeFrame or nil
+      if snipeFrame then
+        snipeFrame.itemID = eventData
+        snipeFrame.price:SetAmount(PriceMemory[eventData] or 0)
+        snipeFrame.baitPrice:SetAmount(BaitMemory[eventData] or 0)
+      end
     elseif eventName == "COMMODITY_PURCHASE_SUCCEEDED" or eventName == "COMMODITY_PURCHASE_FAILED" or eventName == "COMMODITY_PRICE_UNAVAILABLE" then
-      unlockPurchase(getAuctionatorBuyFrame())
+      resetBuyButton(getAuctionatorBuyFrame())
     end
   end)
 end

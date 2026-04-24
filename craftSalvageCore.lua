@@ -213,6 +213,25 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 	})
 	self.craftSalvageActionFrames[config.key] = actionController
 	local actionFrame = actionController.frame
+	local function tryBeginBagRestack(eventName)
+		if bagSortSettling or not lastSalvageTargetItemID then
+			return false
+		end
+
+		if not SmartRez.StartPlayerBagItemRestack or not SmartRez:StartPlayerBagItemRestack(lastSalvageTargetItemID) then
+			return false
+		end
+
+		bagSortSettling = true
+		actionController:Debug("restacking item", lastSalvageTargetItemID, "after", eventName or "spell event")
+		if SmartRez.RebuildInventoryCounts then
+			SmartRez:RebuildInventoryCounts()
+		end
+		SmartRez:MarkCraftSalvageCacheDirty()
+		actionController:BeginExternalWait(SALVAGE_SORT_SETTLE_SECONDS, "bag restack settle", "bag restack settle timeout")
+		actionFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+		return true
+	end
 
 	local selection = self:GetCraftSalvageSelection(config.key)
 	if selection and selection.sortBagsOnLoad and self:HasProfession(config.professionID) then
@@ -333,6 +352,16 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 		if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
 			local unitToken, _, spellID = ...
 			actionController:HandleUnitSpellcastFailed(unitToken, spellID, "spell failed")
+			local selection = SmartRez:GetCraftSalvageSelection(config.key)
+			if unitToken ~= "player" or not selection or spellID ~= selection.recipeID then
+				return
+			end
+
+			if SmartRez:GetFreeBagSlots() <= 0 then
+				return
+			end
+
+			tryBeginBagRestack(eventName)
 			return
 		end
 
@@ -349,26 +378,7 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 
 			actionController:Debug("spell event", eventName, unitToken, spellID or "nil")
 			actionController:Unlock("spell interrupted")
-			if bagSortSettling then
-				return
-			end
-
-			if not lastSalvageTargetItemID then
-				return
-			end
-
-			if not SmartRez.StartPlayerBagItemRestack or not SmartRez:StartPlayerBagItemRestack(lastSalvageTargetItemID) then
-				return
-			end
-
-			bagSortSettling = true
-			actionController:Debug("restacking item", lastSalvageTargetItemID, "after spell interrupted")
-			if SmartRez.RebuildInventoryCounts then
-				SmartRez:RebuildInventoryCounts()
-			end
-			SmartRez:MarkCraftSalvageCacheDirty()
-			actionController:BeginExternalWait(SALVAGE_SORT_SETTLE_SECONDS, "bag restack settle", "bag restack settle timeout")
-			actionFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+			tryBeginBagRestack(eventName)
 			return
 		end
 
