@@ -15,6 +15,7 @@ professionProxy.lua
 menuProbe.lua
 craftSalvageConfig.lua
 overrideBindings.lua
+bagValue.lua
 automationConfigUi.lua
 craftSalvageCore.lua
 craftRecipeCore.lua

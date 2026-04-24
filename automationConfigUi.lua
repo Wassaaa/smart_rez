@@ -26,6 +26,34 @@ local ITEM_ICON_WIDGET_SIZE = 56
 local ITEM_ICON_BORDER_SIZE = 46
 local ITEM_QUALITY_BADGE_SIZE = 27
 
+---@class SmartRezBagValueSnapshotItem
+---@field itemID number
+---@field itemLink string?
+---@field itemIcon number?
+---@field count number
+---@field totalValue number
+---@field pricedQuantity number
+---@field missingPriceQuantity number
+---@field minUnitPrice number?
+---@field maxUnitPrice number?
+
+---@class SmartRezBagValueSnapshot
+---@field priceSource string
+---@field onlyAuctionable boolean
+---@field inventorySources table
+---@field isTSMAvailable boolean
+---@field hasSelection boolean
+---@field availableItemIDs number[]
+---@field itemsByID table<number, SmartRezBagValueSnapshotItem>
+---@field totalAvailableQuantity number
+---@field totalSelectedQuantity number
+---@field totalSelectedValue number
+---@field totalSelectedValueText string
+---@field selectedItemTypes number
+---@field availableItemTypes number
+---@field missingPriceQuantity number
+---@field invalidPriceMessage string?
+
 local function colorize(hexColor, text)
 	return string.format("|cff%s%s|r", hexColor, tostring(text))
 end
@@ -117,6 +145,19 @@ local function getItemSetCount(itemSet)
 	end
 
 	return count
+end
+
+local function formatMoney(value)
+	value = math.max(0, math.floor(tonumber(value) or 0))
+
+	if GetMoneyString then
+		return GetMoneyString(value, true)
+	end
+
+	local gold = math.floor(value / 10000)
+	local silver = math.floor((value % 10000) / 100)
+	local copper = value % 100
+	return string.format("%dg %ds %dc", gold, silver, copper)
 end
 
 local function normalizeCraftingQuality(reagentQuality, useMidnightIcon)
@@ -242,8 +283,8 @@ local function createCursorItemButton(addItemFunc, missingItemMessage)
 	return button
 end
 
-local function getInventorySourcesSummary()
-	local inventorySources = SmartRez:GetInventorySources()
+local function getInventorySourcesSummary(inventorySources)
+	inventorySources = inventorySources or SmartRez:GetInventorySources()
 	local enabledSources = {}
 
 	if inventorySources.playerBags ~= false then
@@ -258,28 +299,37 @@ local function getInventorySourcesSummary()
 end
 
 ---@param parent AceGUIContainer
-local function renderInventorySourcesGroup(parent)
-	local inventorySources = SmartRez:GetInventorySources()
+local function renderInventorySourcesGroup(parent, config)
+	config = config or {}
+	local getSources = config.getSources or function()
+		return SmartRez:GetInventorySources()
+	end
+	local setSources = config.setSources or function(updatedSources)
+		SmartRez:SetInventorySources(updatedSources)
+	end
+	local title = config.title or "Inventory Sources"
+	local helpText = config.helpText or "Choose where Smart Rez looks for crafting, salvage, and disenchant items. Some flows may still require the relevant Blizzard UI to be opened first. Warbank support is available, but it is currently safest to leave it off unless you are actively testing it."
+	local inventorySources = getSources()
 	local group = AceGUI:Create("InlineGroup")
-	group:SetTitle("Inventory Sources")
+	group:SetTitle(title)
 	group:SetFullWidth(true)
 	group:SetLayout("List")
 	parent:AddChild(group)
 
 	local help = AceGUI:Create("Label")
 	help:SetFullWidth(true)
-	help:SetText(colorize("A5D6FF", "Choose where Smart Rez looks for crafting, salvage, and disenchant items. Some flows may still require the relevant Blizzard UI to be opened first. Warbank support is available, but it is currently safest to leave it off unless you are actively testing it."))
+	help:SetText(colorize("A5D6FF", helpText))
 	group:AddChild(help)
 
 	local summary = AceGUI:Create("Label")
 	summary:SetFullWidth(true)
-	summary:SetText(colorize("79C0FF", "Currently using: " .. getInventorySourcesSummary()))
+	summary:SetText(colorize("79C0FF", "Currently using: " .. getInventorySourcesSummary(inventorySources)))
 	group:AddChild(summary)
 
 	local function setSource(sourceKey, enabled)
-		local updatedSources = SmartRez:GetInventorySources()
+		local updatedSources = getSources()
 		updatedSources[sourceKey] = enabled == true
-		SmartRez:SetInventorySources(updatedSources)
+		setSources(updatedSources)
 	end
 
 	local bagCheck = AceGUI:Create("CheckBox")
@@ -412,8 +462,8 @@ local function renderItemIconFilterGroup(parent, config)
 		selectedCount = getItemSetCount(selectedSet)
 		statusLabel:SetText(colorize(
 			"7D8590",
-			selectedCount == 0 and "No whitelist entries. Click icons to build one, or leave it empty."
-				or ("Selected " .. tostring(selectedCount) .. " item(s). Click highlighted icons to remove them.")
+			selectedCount == 0 and (config.emptySelectionText or "No whitelist entries. Click icons to build one, or leave it empty.")
+				or ((config.selectedStatusTextPrefix or "Selected ") .. tostring(selectedCount) .. (config.selectedStatusTextSuffix or " item(s). Click highlighted icons to remove them."))
 		))
 	end
 	updateStatusLabel()
@@ -426,7 +476,7 @@ local function renderItemIconFilterGroup(parent, config)
 
 	local controlHint = AceGUI:Create("Label")
 	controlHint:SetWidth(CONTROL_HINT_WIDTH + 120)
-	controlHint:SetText(colorize("7D8590", "Click icons to toggle the whitelist. Leaving it empty means no whitelist restriction."))
+	controlHint:SetText(colorize("7D8590", config.controlHintText or "Click icons to toggle the whitelist. Leaving it empty means no whitelist restriction."))
 	controlRow:AddChild(controlHint)
 
 	addSectionSpacer(group)
@@ -439,14 +489,14 @@ local function renderItemIconFilterGroup(parent, config)
 	if #(config.availableItemIDs or {}) == 0 then
 		local emptyLabel = AceGUI:Create("Label")
 		emptyLabel:SetFullWidth(true)
-		emptyLabel:SetText("No API items are available for this filter yet.")
+		emptyLabel:SetText(config.emptyText or "No API items are available for this filter yet.")
 		iconGrid:AddChild(emptyLabel)
 		return
 	end
 
 	for _, itemID in ipairs(getSortedAvailableItemIDs(config.availableItemIDs)) do
 		local _, itemIcon, reagentQuality = getItemVisualInfo(itemID)
-		local itemCount = SmartRez:GetBagItemCount(itemID)
+		local itemCount = config.getItemCount and config.getItemCount(itemID) or SmartRez:GetBagItemCount(itemID)
 		local isExplicitlySelected = selectedSet[itemID] == true
 		local isSelected = isExplicitlySelected
 
@@ -456,7 +506,11 @@ local function renderItemIconFilterGroup(parent, config)
 		icon:SetHeight(ITEM_ICON_WIDGET_SIZE + 16)
 		icon:SetImage(itemIcon or 134400)
 		icon:SetImageSize(ITEM_ICON_SIZE, ITEM_ICON_SIZE)
-		icon:SetLabel(colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount)))
+		if config.getIconLabel then
+			icon:SetLabel(config.getIconLabel(itemID, itemCount))
+		else
+			icon:SetLabel(colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount)))
+		end
 		local function updateIconSelectionState()
 			selectedSet = config.getSelectedSet()
 			isExplicitlySelected = selectedSet[itemID] == true
@@ -487,9 +541,13 @@ local function renderItemIconFilterGroup(parent, config)
 		icon:SetCallback("OnEnter", function(widget)
 			GameTooltip:SetOwner(widget.frame, "ANCHOR_RIGHT")
 			GameTooltip:SetItemByID(itemID)
-			GameTooltip:AddLine(" ")
-			GameTooltip:AddLine(itemCount > 0 and ("Stored: " .. tostring(itemCount)) or "Stored: 0", 0.48, 0.75, 1)
-			GameTooltip:AddLine(isSelected and "Whitelisted" or "Not whitelisted", isSelected and 0.49 or 0.49, isSelected and 0.91 or 0.52, isSelected and 0.53 or 0.56)
+			if config.addTooltipLines then
+				config.addTooltipLines(GameTooltip, itemID, itemCount, isSelected)
+			else
+				GameTooltip:AddLine(" ")
+				GameTooltip:AddLine(itemCount > 0 and ("Stored: " .. tostring(itemCount)) or "Stored: 0", 0.48, 0.75, 1)
+				GameTooltip:AddLine(isSelected and "Whitelisted" or "Not whitelisted", isSelected and 0.49 or 0.49, isSelected and 0.91 or 0.52, isSelected and 0.53 or 0.56)
+			end
 			GameTooltip:Show()
 		end)
 		icon:SetCallback("OnLeave", function()
@@ -646,6 +704,151 @@ local function renderGoldPrinterTab(parent)
 	renderGoldPrinterGroup(parent)
 end
 
+---@param parent AceGUIContainer
+---@param snapshot SmartRezBagValueSnapshot
+local function renderBagValueSummaryGroup(parent, snapshot)
+	local group = AceGUI:Create("InlineGroup")
+	group:SetTitle("Auctionable Bag Value")
+	group:SetFullWidth(true)
+	group:SetLayout("List")
+	parent:AddChild(group)
+
+	local help = AceGUI:Create("Label")
+	help:SetFullWidth(true)
+	help:SetText(colorize("A5D6FF", "Select item types below and Smart Rez will keep a live total for those items across the enabled source groups."))
+	group:AddChild(help)
+
+	local totalLabel = AceGUI:Create("Label")
+	totalLabel:SetFullWidth(true)
+	totalLabel:SetText(colorize("7EE787", "Selected value: ") .. snapshot.totalSelectedValueText)
+	group:AddChild(totalLabel)
+
+	local countsLabel = AceGUI:Create("Label")
+	countsLabel:SetFullWidth(true)
+	countsLabel:SetText(string.format(
+		"%s %d/%d  |  %s %d  |  %s %s",
+		colorize("A5D6FF", "Selected items:"),
+		snapshot.selectedItemTypes,
+		snapshot.availableItemTypes,
+		colorize("A5D6FF", "Selected quantity:"),
+		snapshot.totalSelectedQuantity,
+		colorize("A5D6FF", "Sources:"),
+		getInventorySourcesSummary(snapshot.inventorySources)
+	))
+	group:AddChild(countsLabel)
+
+	---@type AceGUIEditBox
+	local priceEdit = AceGUI:Create("EditBox")
+	priceEdit:SetFullWidth(true)
+	priceEdit:SetLabel("TSM price source / custom price")
+	priceEdit:SetText(snapshot.priceSource)
+	priceEdit:SetCallback("OnEnterPressed", function(_, _, value)
+		SmartRez:SetBagValuePriceSource(value)
+	end)
+	group:AddChild(priceEdit)
+
+	local filterCheck = AceGUI:Create("CheckBox")
+	filterCheck:SetLabel("Only show auctionable items")
+	filterCheck:SetValue(snapshot.onlyAuctionable)
+	filterCheck:SetCallback("OnValueChanged", function(_, _, value)
+		SmartRez:SetBagValueOnlyAuctionable(value)
+	end)
+	group:AddChild(filterCheck)
+
+	if not snapshot.isTSMAvailable then
+		local warning = AceGUI:Create("Label")
+		warning:SetFullWidth(true)
+		warning:SetText(colorize("FFB86C", "TradeSkillMaster is not loaded, so Smart Rez cannot evaluate the selected item values yet."))
+		group:AddChild(warning)
+	elseif snapshot.invalidPriceMessage then
+		local warning = AceGUI:Create("Label")
+		warning:SetFullWidth(true)
+		warning:SetText(colorize("FF7B72", "Price error: " .. tostring(snapshot.invalidPriceMessage)))
+		group:AddChild(warning)
+	elseif snapshot.missingPriceQuantity > 0 then
+		local warning = AceGUI:Create("Label")
+		warning:SetFullWidth(true)
+		warning:SetText(colorize("FFD866", "Missing price data for " .. tostring(snapshot.missingPriceQuantity) .. " selected item(s)."))
+		group:AddChild(warning)
+	end
+
+	if not snapshot.hasSelection then
+		local hint = AceGUI:Create("Label")
+		hint:SetFullWidth(true)
+		hint:SetText(colorize("7D8590", "No items selected yet. Click icons below to build your tracked set."))
+		group:AddChild(hint)
+	end
+end
+
+---@param parent AceGUIContainer
+local function renderBagValueTab(parent)
+	local snapshot = SmartRez:BuildBagValueSnapshot()
+	renderInventorySourcesGroup(parent, {
+		title = "Value Sources",
+		helpText = "Choose where Smart Rez looks for bag-value items. This source selection is separate from crafting, salvage, and disenchant. Enabling warbank here will prime the profession proxy backend so warbank items can enumerate.",
+		getSources = function()
+			return SmartRez:GetBagValueInventorySources()
+		end,
+		setSources = function(updatedSources)
+			SmartRez:SetBagValueInventorySources(updatedSources)
+		end,
+	})
+	renderBagValueSummaryGroup(parent, snapshot)
+
+	renderItemIconFilterGroup(parent, {
+		title = "Tracked Auction Items",
+		helpText = "Items from the enabled source groups. Click icons to include or exclude them from the value total.",
+		summaryText = colorize("79C0FF", string.format(
+			"Available item types: %d  |  Visible quantity: %d",
+			snapshot.availableItemTypes,
+			snapshot.totalAvailableQuantity
+		)),
+		getSummaryText = nil,
+		availableItemIDs = snapshot.availableItemIDs,
+		getSelectedSet = function()
+			return SmartRez:GetBagValueWhitelist()
+		end,
+		getItemCount = function(itemID)
+			local itemData = snapshot.itemsByID[itemID]
+			return itemData and itemData.count or 0
+		end,
+		getIconLabel = function(itemID)
+			local itemData = snapshot.itemsByID[itemID]
+			local itemCount = itemData and itemData.count or 0
+			return colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount))
+		end,
+		addTooltipLines = function(tooltip, itemID, _, isSelected)
+			local itemData = snapshot.itemsByID[itemID]
+			local itemCount = itemData and itemData.count or 0
+			tooltip:AddLine(" ")
+			tooltip:AddLine("Stored: " .. tostring(itemCount), 0.48, 0.75, 1)
+			if itemData and itemData.pricedQuantity > 0 then
+				if itemData.minUnitPrice and itemData.maxUnitPrice and itemData.minUnitPrice == itemData.maxUnitPrice then
+					tooltip:AddLine("Unit value: " .. formatMoney(itemData.minUnitPrice), 0.49, 0.91, 0.53)
+				else
+					tooltip:AddLine("Unit value: varies", 0.49, 0.91, 0.53)
+				end
+				tooltip:AddLine("Selected subtotal: " .. formatMoney(itemData.totalValue), 0.49, 0.91, 0.53)
+			end
+			if itemData and itemData.missingPriceQuantity > 0 then
+				tooltip:AddLine("Missing price on: " .. tostring(itemData.missingPriceQuantity), 1, 0.72, 0.4)
+			end
+			tooltip:AddLine(isSelected and "Included in total" or "Not included in total", isSelected and 0.49 or 0.49, isSelected and 0.91 or 0.52, isSelected and 0.53 or 0.56)
+		end,
+		addItemFunc = function(itemID)
+			SmartRez:AddBagValueWhitelistItem(itemID)
+		end,
+		removeItemFunc = function(itemID)
+			SmartRez:RemoveBagValueWhitelistItem(itemID)
+		end,
+		emptySelectionText = "No tracked items selected yet. Click icons to start building the total.",
+		selectedStatusTextPrefix = "Tracking ",
+		selectedStatusTextSuffix = " item(s). Click highlighted icons to remove them from the total.",
+		controlHintText = "Click icons to choose which item types count toward the total. Leaving it empty means the total stays at zero.",
+		emptyText = "No visible items matched the current source and auctionability filters.",
+	})
+end
+
 local function getAutomationTabValue(professionKey)
 	return "salvage:" .. tostring(professionKey)
 end
@@ -660,6 +863,7 @@ end
 local function buildAutomationTabs()
 	local tabs = {
 		{ text = "Gold Printer", value = "goldprinter" },
+		{ text = "Bag Value", value = "bagvalue" },
 	}
 
 	for _, profession in ipairs(SmartRez:GetCraftSalvageProfessions(true)) do
@@ -674,6 +878,10 @@ end
 
 local function isAutomationTabAvailable(groupValue)
 	if groupValue == "goldprinter" then
+		return true
+	end
+
+	if groupValue == "bagvalue" then
 		return true
 	end
 
@@ -840,6 +1048,8 @@ local function renderAutomationGroup(tabGroup, groupValue)
 
 	if groupValue == "goldprinter" then
 		renderGoldPrinterTab(scroll)
+	elseif groupValue == "bagvalue" then
+		renderBagValueTab(scroll)
 	else
 		local profession = getAutomationTabProfession(groupValue)
 		if profession then

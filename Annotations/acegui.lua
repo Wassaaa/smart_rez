@@ -52,6 +52,21 @@ local AceGUIButton = {}
 ---@param text string?
 function AceGUIButton:SetText(text) end
 
+---@class AceGUIEditBox: AceGUIWidget
+local AceGUIEditBox = {}
+
+---@param text string?
+function AceGUIEditBox:SetText(text) end
+
+---@return string
+function AceGUIEditBox:GetText() end
+
+---@param text string?
+function AceGUIEditBox:SetLabel(text) end
+
+---@param disabled boolean
+function AceGUIEditBox:DisableButton(disabled) end
+
 ---@class AceGUIIcon: AceGUIWidget
 ---@field frame table
 ---@field image table
@@ -141,6 +156,7 @@ local AceGUILib = {}
 ---@overload fun(self: AceGUILib, widgetType: "Label"): AceGUILabel
 ---@overload fun(self: AceGUILib, widgetType: "InteractiveLabel"): AceGUIInteractiveLabel
 ---@overload fun(self: AceGUILib, widgetType: "Button"): AceGUIButton
+---@overload fun(self: AceGUILib, widgetType: "EditBox"): AceGUIEditBox
 ---@overload fun(self: AceGUILib, widgetType: "Icon"): AceGUIIcon
 ---@overload fun(self: AceGUILib, widgetType: "CheckBox"): AceGUICheckBox
 ---@overload fun(self: AceGUILib, widgetType: "Slider"): AceGUISlider

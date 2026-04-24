@@ -42,6 +42,15 @@ SmartRez.dbDefaults = {
 		playerBags = true,
 		warbank = false,
 	},
+	bagValue = {
+		priceSource = "DBRecent",
+		onlyAuctionable = true,
+		inventorySources = {
+			playerBags = true,
+			warbank = false,
+		},
+		whitelist = {},
+	},
 	professionProxy = {
 		visible = true,
 		point = {
