@@ -3,6 +3,7 @@ local SmartRez = _G.SmartRez
 local C_Container = C_Container
 local C_CVar = C_CVar
 local C_TradeSkillUI = C_TradeSkillUI
+local C_Item = C_Item
 local CreateFrame = CreateFrame
 local GetCVar = GetCVar
 local GetLootSlotInfo = GetLootSlotInfo
@@ -32,6 +33,7 @@ local DE = {
   verifiedItemID = nil,
   itemVerified = false,
   verificationError = nil,
+  itemDisenchantability = {},
 }
 
 DE.HiddenTooltip = CreateFrame("GameTooltip", "SmartRezDisenchantHiddenTooltip", UIParent, "GameTooltipTemplate")
@@ -88,6 +90,24 @@ local function debugDisenchant(message, ...)
   end
 
   print("SmartRez DE: " .. message)
+end
+
+local function scanTooltipForDisenchantability(itemID)
+  if not itemID then
+    return false
+  end
+
+  DE.HiddenTooltip:SetItemByID(itemID)
+
+  for lineIndex = 1, DE.HiddenTooltip:NumLines() do
+    local textRegion = _G[DE.HiddenTooltip:GetName() .. "TextLeft" .. lineIndex]
+    local line = textRegion and textRegion:GetText()
+    if line and string.find(line, ITEM_DISENCHANT_NOT_DISENCHANTABLE, 1, true) then
+      return false
+    end
+  end
+
+  return true
 end
 
 local function isConfiguredKeyDown()
@@ -600,6 +620,52 @@ DE.Events:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
 
 function SmartRez:HasDisenchantTarget()
   return DE:GetFirstTarget() ~= nil or DE:ShouldPrimeRemoteAccess()
+end
+
+function SmartRez:IsItemDisenchantable(itemID)
+  if itemID == nil then
+    return false
+  end
+
+  local cached = DE.itemDisenchantability[itemID]
+  if cached ~= nil then
+    return cached
+  end
+
+  local _, _, quality, _, _, _, _, _, equipLoc, _, _, classID = C_Item.GetItemInfo(itemID)
+  if not quality or not classID then
+    DE.itemDisenchantability[itemID] = false
+    return false
+  end
+
+  local isArmorOrWeapon = classID == Enum.ItemClass.Armor or classID == Enum.ItemClass.Weapon
+  local hasEquipLocation = type(equipLoc) == "string" and equipLoc ~= ""
+  if not isArmorOrWeapon or not hasEquipLocation or quality < 2 or quality > 4 then
+    DE.itemDisenchantability[itemID] = false
+    return false
+  end
+
+  local isDisenchantable = scanTooltipForDisenchantability(itemID)
+  DE.itemDisenchantability[itemID] = isDisenchantable
+  return isDisenchantable
+end
+
+function SmartRez:GetAvailableDisenchantItemIDs()
+  local itemIDs = {}
+  local seen = {}
+
+  self:ForEachCraftingItemSourceSlot(function(bag, slot)
+    local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
+    local itemID = itemInfo and itemInfo.itemID
+    local itemLocation = itemID and ItemLocation:CreateFromBagAndSlot(bag, slot) or nil
+    local isBound = itemLocation and C_Item.IsBound and C_Item.IsBound(itemLocation) or false
+    if itemID and not isBound and not seen[itemID] and self:IsItemDisenchantable(itemID) then
+      seen[itemID] = true
+      itemIDs[#itemIDs + 1] = itemID
+    end
+  end)
+
+  return itemIDs
 end
 
 function SmartRez:IsDisenchantLocked()

@@ -18,6 +18,7 @@ SmartRez.craftRecipeActionFrames = {}
 SmartRez.craftRecipeCache = {}
 SmartRez.craftRecipeCacheDirty = true
 SmartRez.craftingItemCounts = {}
+SmartRez.viewRefreshQueued = false
 SmartRez.cachedFreeBagSlots = nil
 SmartRez.knownProfessions = {}
 SmartRez.goldPrinterMinFreeSlots = 4
@@ -27,6 +28,8 @@ SmartRez.dbDefaults = {
 	bindings = {},
 	goldPrinter = {
 		minFreeSlots = 4,
+		selectedRoutineKey = "default",
+		routines = {},
 	},
 	tsmLabelClick = {
 		cooldown = 0.25,
@@ -36,6 +39,7 @@ SmartRez.dbDefaults = {
 		debug = false,
 	},
 	disenchantWhitelist = {},
+	disenchantWhitelists = {},
 	salvageWhitelists = {},
 	salvageSelections = {},
 	inventorySources = {
@@ -66,9 +70,10 @@ SmartRez.dbDefaults = {
 			recipeID = nil,
 			requiredProfession = nil,
 			openTradeSkillID = nil,
-			useDefaultReagents = true,
+			useDefaultReagents = false,
 			debug = false,
 			reagents = {},
+			reagentSlots = {},
 		},
 	},
 }
@@ -283,6 +288,9 @@ end
 
 function SmartRez:GetRecipeCraftConfig(configKey)
 	self:EnsureConfig()
+	if self.activeRecipeCraftConfigs and type(self.activeRecipeCraftConfigs[configKey]) == "table" then
+		return self:HydrateRecipeCraftConfig(self.activeRecipeCraftConfigs[configKey])
+	end
 	if type(self.db.recipeCrafts[configKey]) ~= "table" then
 		local defaultConfig = self.dbDefaults.recipeCrafts[configKey] or {}
 		self.db.recipeCrafts[configKey] = copyTable(defaultConfig)
@@ -294,12 +302,294 @@ function SmartRez:GetRecipeCraftConfig(configKey)
 		mergeDefaults(recipeConfig, defaultConfig)
 	end
 
-	return recipeConfig
+	return self:HydrateRecipeCraftConfig(recipeConfig)
 end
 
 function SmartRez:SetRecipeCraftConfig(configKey, recipeConfig)
 	self:EnsureConfig()
 	self.db.recipeCrafts[configKey] = recipeConfig or {}
+end
+
+local buildCraftingReagentsFromConfig
+
+local function getSelectedRecipeSlotItemID(reagentSlot, currentTransaction, slotIndex)
+	local selectedItemID = nil
+	local slotAllocations = currentTransaction and currentTransaction.GetAllocations and currentTransaction:GetAllocations(slotIndex) or nil
+
+	if slotAllocations and slotAllocations.FindAllocationByReagent then
+		for _, reagent in ipairs(reagentSlot.reagents or {}) do
+			local allocation = slotAllocations:FindAllocationByReagent(reagent)
+			if allocation and allocation.GetQuantity and allocation:GetQuantity() > 0 then
+				selectedItemID = reagent.itemID
+				break
+			end
+		end
+	end
+
+	return selectedItemID
+end
+
+local function getRecipeCraftSlotKind(reagentSlot)
+	local slotText = reagentSlot.slotInfo and reagentSlot.slotInfo.slotText
+	if reagentSlot.reagentType == 3 or slotText == "Socket" then
+		return "socket"
+	end
+
+	if reagentSlot.reagentType == 1 then
+		return (reagentSlot.required == false) and "optional" or "required"
+	end
+
+	if reagentSlot.reagentType == 2 then
+		return "finishing"
+	end
+
+	return "optional"
+end
+
+local function isRecipeCraftSocketSlot(reagentSlot)
+	return reagentSlot
+		and (
+			reagentSlot.slotKind == "socket"
+			or reagentSlot.reagentType == 3
+			or reagentSlot.label == "Socket"
+		)
+end
+
+function SmartRez:BuildRecipeCraftSlotConfigs(recipeID, professionID, currentTransaction)
+	local slotConfigs = {}
+	local recipeSchematic = C_TradeSkillUI.GetRecipeSchematic and C_TradeSkillUI.GetRecipeSchematic(recipeID, false) or nil
+
+	for slotIndex, reagentSlot in ipairs(recipeSchematic and recipeSchematic.reagentSlotSchematics or {}) do
+		local allowedItemIDs = {}
+		local hasCurrencyChoices = false
+
+		for _, reagent in ipairs(reagentSlot.reagents or {}) do
+			if reagent.itemID then
+				allowedItemIDs[#allowedItemIDs + 1] = reagent.itemID
+			end
+			if reagent.currencyID then
+				hasCurrencyChoices = true
+			end
+		end
+
+		local selectedItemID = getSelectedRecipeSlotItemID(reagentSlot, currentTransaction, slotIndex)
+		local selectedItemIDs = {}
+		if selectedItemID then
+			selectedItemIDs[selectedItemID] = true
+		end
+
+		local locked = false
+		local lockedReason = nil
+		local slotInfo = reagentSlot.slotInfo
+		if slotInfo and slotInfo.mcrSlotID and C_TradeSkillUI.GetReagentSlotStatus then
+			locked, lockedReason = C_TradeSkillUI.GetReagentSlotStatus(slotInfo.mcrSlotID, recipeID, professionID)
+		end
+
+		slotConfigs[#slotConfigs + 1] = {
+			slotIndex = reagentSlot.slotIndex or slotIndex,
+			dataSlotIndex = reagentSlot.dataSlotIndex or slotIndex,
+			label = slotInfo and slotInfo.slotText or ("Slot " .. tostring(slotIndex)),
+			quantityRequired = reagentSlot.quantityRequired or 0,
+			required = reagentSlot.required ~= false,
+			reagentType = reagentSlot.reagentType,
+			slotKind = getRecipeCraftSlotKind(reagentSlot),
+			allowedItemIDs = allowedItemIDs,
+			selectedItemIDs = selectedItemIDs,
+			locked = locked == true,
+			lockedReason = lockedReason,
+			hasCurrencyChoices = hasCurrencyChoices,
+			hasSupportedItems = #allowedItemIDs > 0,
+		}
+	end
+
+	return slotConfigs
+end
+
+local function getRecipeCraftChoiceMap(recipeConfig)
+	local choiceMap = {}
+
+	for dataSlotIndex, itemID in pairs(recipeConfig and recipeConfig.reagentChoices or {}) do
+		if tonumber(dataSlotIndex) and itemID then
+			choiceMap[tonumber(dataSlotIndex)] = itemID
+		end
+	end
+
+	for _, reagentSlot in ipairs(recipeConfig and recipeConfig.reagentSlots or {}) do
+		local dataSlotIndex = reagentSlot.dataSlotIndex
+		if dataSlotIndex then
+			for itemID, selected in pairs(reagentSlot.selectedItemIDs or {}) do
+				if selected then
+					choiceMap[dataSlotIndex] = itemID
+					break
+				end
+			end
+		end
+	end
+
+	return choiceMap
+end
+
+local function applyRecipeCraftChoiceMap(recipeConfig, choiceMap)
+	recipeConfig.reagentChoices = {}
+
+	for _, reagentSlot in ipairs(recipeConfig.reagentSlots or {}) do
+		local dataSlotIndex = reagentSlot.dataSlotIndex
+		local selectedItemID = dataSlotIndex and choiceMap[dataSlotIndex] or nil
+		reagentSlot.selectedItemIDs = {}
+
+		if selectedItemID then
+			for _, allowedItemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+				if allowedItemID == selectedItemID then
+					reagentSlot.selectedItemIDs[selectedItemID] = true
+					recipeConfig.reagentChoices[dataSlotIndex] = selectedItemID
+					break
+				end
+			end
+		end
+	end
+end
+
+function SmartRez:HydrateRecipeCraftConfig(recipeConfig)
+	if type(recipeConfig) ~= "table" or not recipeConfig.recipeID then
+		return recipeConfig
+	end
+
+	local recipeID = recipeConfig.recipeID
+	local professionID = recipeConfig.requiredProfession or recipeConfig.openTradeSkillID
+	local recipeSchematic = C_TradeSkillUI.GetRecipeSchematic and C_TradeSkillUI.GetRecipeSchematic(recipeID, false) or nil
+	if not recipeSchematic then
+		return recipeConfig
+	end
+
+	local choiceMap = getRecipeCraftChoiceMap(recipeConfig)
+	recipeConfig.label = recipeSchematic.name or recipeConfig.label
+	recipeConfig.outputQuantityMin = recipeSchematic.quantityMin or recipeConfig.outputQuantityMin
+	recipeConfig.outputQuantityMax = recipeSchematic.quantityMax or recipeConfig.outputQuantityMax
+	recipeConfig.reagentSlots = self:BuildRecipeCraftSlotConfigs(recipeID, professionID)
+	applyRecipeCraftChoiceMap(recipeConfig, choiceMap)
+
+	local resolvedReagents = self:RefreshRecipeCraftResolvedConfig(recipeConfig)
+	local outputInfo = C_TradeSkillUI.GetRecipeOutputItemData and C_TradeSkillUI.GetRecipeOutputItemData(
+		recipeID,
+		buildCraftingReagentsFromConfig(resolvedReagents)
+	)
+	local recipeInfo = C_TradeSkillUI.GetRecipeInfo and C_TradeSkillUI.GetRecipeInfo(recipeID) or nil
+
+	recipeConfig.outputItemLink = outputInfo and outputInfo.hyperlink or recipeConfig.outputItemLink or recipeInfo and recipeInfo.hyperlink or nil
+	recipeConfig.outputItemID = outputInfo and outputInfo.itemID or recipeConfig.outputItemID
+	recipeConfig.outputIcon = outputInfo and outputInfo.icon or recipeConfig.outputIcon or recipeInfo and recipeInfo.icon or nil
+	return recipeConfig
+end
+
+local function getBestRecipeCraftItemChoice(recipeConfig, reagentSlot)
+	local selectedItemIDs = reagentSlot.selectedItemIDs or {}
+	local hasSelectedFilter = next(selectedItemIDs) ~= nil
+	local candidateItemIDs = {}
+
+	if hasSelectedFilter then
+		for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+			if selectedItemIDs[itemID] then
+				candidateItemIDs[#candidateItemIDs + 1] = itemID
+			end
+		end
+	elseif reagentSlot.required ~= false then
+		for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+			candidateItemIDs[#candidateItemIDs + 1] = itemID
+		end
+	end
+
+	local bestItemID = nil
+	local bestPossibleCasts = -1
+	local quantityRequired = math.max(1, tonumber(reagentSlot.quantityRequired) or 1)
+
+	for _, itemID in ipairs(candidateItemIDs) do
+		local availableCount = SmartRez:GetCraftingItemCount(itemID)
+		local possibleCasts = math.floor(availableCount / quantityRequired)
+		if bestItemID == nil or possibleCasts > bestPossibleCasts then
+			bestItemID = itemID
+			bestPossibleCasts = possibleCasts
+		end
+	end
+
+	return bestItemID, bestPossibleCasts, hasSelectedFilter
+end
+
+local function normalizeRecipeCraftSingleChoiceSlot(reagentSlot)
+	if type(reagentSlot.selectedItemIDs) ~= "table" then
+		reagentSlot.selectedItemIDs = {}
+		return
+	end
+
+	local chosenItemID = nil
+	for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+		if reagentSlot.selectedItemIDs[itemID] then
+			chosenItemID = itemID
+			break
+		end
+	end
+
+	reagentSlot.selectedItemIDs = chosenItemID and {
+		[chosenItemID] = true,
+	} or {}
+end
+
+function SmartRez:BuildResolvedRecipeCraftReagents(recipeConfig)
+	local resolvedReagents = {}
+	local maxCrafts = nil
+	local unsupportedRequiredSlot = false
+
+	for _, reagentSlot in ipairs(recipeConfig and recipeConfig.reagentSlots or {}) do
+		normalizeRecipeCraftSingleChoiceSlot(reagentSlot)
+		if not isRecipeCraftSocketSlot(reagentSlot) then
+			local bestItemID, possibleCasts, hasSelectedFilter = getBestRecipeCraftItemChoice(recipeConfig, reagentSlot)
+			local slotIsActive = (reagentSlot.required ~= false) or hasSelectedFilter
+
+			if slotIsActive then
+				if bestItemID and reagentSlot.quantityRequired and reagentSlot.quantityRequired > 0 then
+					resolvedReagents[#resolvedReagents + 1] = {
+						itemID = bestItemID,
+						quantity = reagentSlot.quantityRequired,
+						dataSlotIndex = reagentSlot.dataSlotIndex or reagentSlot.slotIndex,
+						slotIndex = reagentSlot.slotIndex,
+					}
+					if maxCrafts == nil or possibleCasts < maxCrafts then
+						maxCrafts = possibleCasts
+					end
+				elseif reagentSlot.required ~= false then
+					if #((reagentSlot.allowedItemIDs) or {}) == 0 and reagentSlot.hasCurrencyChoices then
+						unsupportedRequiredSlot = true
+					end
+					maxCrafts = 0
+				elseif hasSelectedFilter then
+					maxCrafts = 0
+				end
+			end
+		end
+	end
+
+	for _, reagent in ipairs(recipeConfig and recipeConfig.reagents or {}) do
+		if (not reagent.slotIndex) and (reagent.itemID or reagent.currencyID) then
+			resolvedReagents[#resolvedReagents + 1] = copyTable(reagent)
+			local availableCount = reagent.itemID and self:GetCraftingItemCount(reagent.itemID) or 0
+			local possibleCasts = math.floor(availableCount / math.max(1, tonumber(reagent.quantity) or 1))
+			if maxCrafts == nil or possibleCasts < maxCrafts then
+				maxCrafts = possibleCasts
+			end
+		end
+	end
+
+	return resolvedReagents, maxCrafts or 0, unsupportedRequiredSlot
+end
+
+function SmartRez:RefreshRecipeCraftResolvedConfig(recipeConfig)
+	if type(recipeConfig) ~= "table" then
+		return {}, 0
+	end
+
+	local resolvedReagents, maxCrafts, unsupportedRequiredSlot = self:BuildResolvedRecipeCraftReagents(recipeConfig)
+	recipeConfig.reagents = resolvedReagents
+	recipeConfig.unsupportedRequiredSlot = unsupportedRequiredSlot == true
+	return resolvedReagents, maxCrafts
 end
 
 function SmartRez:GetVisibleSchematicForm()
@@ -314,7 +604,7 @@ function SmartRez:GetVisibleSchematicForm()
 	end
 end
 
-local function buildCraftingReagentsFromConfig(reagents)
+buildCraftingReagentsFromConfig = function(reagents)
 	local craftingReagents = {}
 
 	for index, reagent in ipairs(reagents or {}) do
@@ -354,31 +644,12 @@ function SmartRez:UpdateCurrentProfessionState()
 
 	local recipeSchematic = schematicForm.recipeSchematic or C_TradeSkillUI.GetRecipeSchematic(recipeInfo.recipeID, false)
 	local currentTransaction = schematicForm.GetTransaction and schematicForm:GetTransaction() or nil
-	local reagents = {}
-
-	for slotIndex, reagentSlot in ipairs(recipeSchematic and recipeSchematic.reagentSlotSchematics or {}) do
-		if reagentSlot.quantityRequired and reagentSlot.quantityRequired > 0 and (reagentSlot.required ~= false) then
-			local selectedItemID = reagentSlot.reagents and reagentSlot.reagents[1] and reagentSlot.reagents[1].itemID or nil
-			local slotAllocations = currentTransaction and currentTransaction.GetAllocations and currentTransaction:GetAllocations(slotIndex) or nil
-
-			if slotAllocations and slotAllocations.FindAllocationByReagent then
-				for _, reagent in ipairs(reagentSlot.reagents or {}) do
-					local allocation = slotAllocations:FindAllocationByReagent(reagent)
-					if allocation and allocation.GetQuantity and allocation:GetQuantity() > 0 then
-						selectedItemID = reagent.itemID
-						break
-					end
-				end
-			end
-
-			reagents[#reagents + 1] = {
-				itemID = selectedItemID,
-				quantity = reagentSlot.quantityRequired,
-				dataSlotIndex = reagentSlot.dataSlotIndex or slotIndex,
-				slotIndex = slotIndex,
-			}
-		end
-	end
+	local reagentSlots = self:BuildRecipeCraftSlotConfigs(recipeInfo.recipeID, professionInfo.professionID, currentTransaction)
+	local recipeConfig = {
+		reagentSlots = reagentSlots,
+		reagents = {},
+	}
+	local reagents = self:RefreshRecipeCraftResolvedConfig(recipeConfig)
 
 	local outputInfo = C_TradeSkillUI.GetRecipeOutputItemData and C_TradeSkillUI.GetRecipeOutputItemData(
 		recipeInfo.recipeID,
@@ -391,6 +662,7 @@ function SmartRez:UpdateCurrentProfessionState()
 		requiredProfession = professionInfo.professionID,
 		openTradeSkillID = professionInfo.professionID,
 		reagents = reagents,
+		reagentSlots = reagentSlots,
 		outputQuantityMin = recipeSchematic and recipeSchematic.quantityMin or 1,
 		outputQuantityMax = recipeSchematic and recipeSchematic.quantityMax or 1,
 		outputItemLink = outputInfo and outputInfo.hyperlink or recipeInfo.hyperlink,
@@ -413,9 +685,6 @@ function SmartRez:WatchProfessionFrame()
 
 	local function updateState()
 		self:UpdateCurrentProfessionState()
-		if self.RefreshViews then
-			self:RefreshViews()
-		end
 	end
 
 	hooksecurefunc(hookFrame, "Init", updateState)
@@ -475,9 +744,10 @@ function SmartRez:LoadRecipeCraftFromSelection(configKey)
 		recipeID = currentState.recipeID,
 		requiredProfession = currentState.requiredProfession,
 		openTradeSkillID = currentState.openTradeSkillID,
-		useDefaultReagents = true,
+		useDefaultReagents = false,
 		debug = false,
 		reagents = copyTable(currentState.reagents or {}),
+		reagentSlots = copyTable(currentState.reagentSlots or {}),
 		outputQuantityMin = currentState.outputQuantityMin,
 		outputQuantityMax = currentState.outputQuantityMax,
 		outputItemLink = currentState.outputItemLink,
@@ -548,6 +818,20 @@ end
 
 function SmartRez:MarkCraftRecipeCacheDirty()
 	self.craftRecipeCacheDirty = true
+end
+
+function SmartRez:QueueRefreshViews()
+	if self.viewRefreshQueued then
+		return
+	end
+
+	self.viewRefreshQueued = true
+	C_Timer.After(0, function()
+		self.viewRefreshQueued = false
+		if self.RefreshViews then
+			self:RefreshViews()
+		end
+	end)
 end
 
 function SmartRez:RebuildInventoryCounts()
@@ -706,6 +990,7 @@ function SmartRez:HandleInventoryChanged()
 	if self.RefreshDisenchantButton then
 		self:RefreshDisenchantButton()
 	end
+	self:QueueRefreshViews()
 end
 
 function SmartRez:HandleProfessionsChanged()
@@ -713,9 +998,7 @@ function SmartRez:HandleProfessionsChanged()
 	self:MarkCraftSalvageCacheDirty()
 	self:MarkCraftRecipeCacheDirty()
 
-	if self.RefreshViews then
-		self:RefreshViews()
-	end
+	self:QueueRefreshViews()
 end
 
 function SmartRez:OnEnable()

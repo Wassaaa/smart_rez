@@ -2,7 +2,9 @@ local SmartRez = _G.SmartRez
 local _floor = math.floor
 
 local function getShardCraftConfigValue(key)
-	return SmartRez:GetRecipeCraftConfig("shardcraft")[key]
+	local recipeConfig = SmartRez:GetRecipeCraftConfig("shardcraft")
+	SmartRez:RefreshRecipeCraftResolvedConfig(recipeConfig)
+	return recipeConfig[key]
 end
 
 local function getShardCraftBagLimitedCasts()
@@ -16,6 +18,13 @@ local function getShardCraftBagLimitedCasts()
 	local outputQuantityMax = tonumber(getShardCraftConfigValue("outputQuantityMax")) or 1
 	local outputPerCraft = math.max(1, outputQuantityMax)
 	return _floor(freeSlotsToSpend / outputPerCraft)
+end
+
+local function getShardCraftResolvedMaxCasts()
+	local recipeConfig = SmartRez:GetRecipeCraftConfig("shardcraft")
+	SmartRez:RefreshRecipeCraftResolvedConfig(recipeConfig)
+	local _, maxCrafts = SmartRez:BuildResolvedRecipeCraftReagents(recipeConfig)
+	return maxCrafts
 end
 
 SmartRez:RegisterCraftRecipeAction({
@@ -39,7 +48,7 @@ SmartRez:RegisterCraftRecipeAction({
 		return getShardCraftConfigValue("debug")
 	end,
 	maxCasts = function()
-		return getShardCraftBagLimitedCasts()
+		return math.min(getShardCraftBagLimitedCasts(), getShardCraftResolvedMaxCasts())
 	end,
 	reagents = function()
 		return getShardCraftConfigValue("reagents")

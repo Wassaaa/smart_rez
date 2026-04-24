@@ -519,3 +519,14 @@ watcherFrame:SetScript("OnEvent", function(_, eventName, arg1)
 end)
 
 registerCraftingUICallback()
+
+if SmartRez.RegisterOverridePopupStatusProvider then
+	SmartRez:RegisterOverridePopupStatusProvider({
+		key = "tsmLabelClickCooldown",
+		label = "TSM Label Click Cooldown",
+		order = 20,
+		getText = function()
+			return SmartRez:Colorize("79C0FF", string.format("%.2fs", SmartRez:GetTSMLabelClickCooldown()))
+		end,
+	})
+end

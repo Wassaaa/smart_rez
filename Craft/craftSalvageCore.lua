@@ -198,6 +198,7 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 		debugPrefix = "SmartRez Salvage " .. config.key,
 		startTimeoutSeconds = SALVAGE_START_TIMEOUT_SECONDS,
 		activityTimeoutSeconds = SALVAGE_ACTIVITY_TIMEOUT_SECONDS,
+		activityReason = "salvage activity",
 		activityTimeoutReason = "salvage activity timeout",
 		startTimeoutReason = "craft start timeout",
 		markDirty = function()
@@ -339,12 +340,12 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 
 	actionFrame:SetScript("OnEvent", function(_, eventName, ...)
 		if eventName == "TRADE_SKILL_CRAFT_BEGIN" then
-			actionController:HandleTradeSkillCraftBegin(..., "salvage activity", SALVAGE_ACTIVITY_TIMEOUT_SECONDS)
+			actionController:HandleCraftEvent(eventName, ...)
 			return
 		end
 
 		if eventName == "BAG_UPDATE_DELAYED" then
-			if actionController:HandleBagUpdateWhileWaitingForSpace() then
+			if actionController:HandleCraftEvent(eventName, ...) then
 				return
 			end
 		end
@@ -372,13 +373,9 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 				return
 			end
 
-			if not actionController:IsBlocked() then
-				return
+			if actionController:HandleUnitSpellcastInterrupted(unitToken, spellID, eventName) then
+				tryBeginBagRestack(eventName)
 			end
-
-			actionController:Debug("spell event", eventName, unitToken, spellID or "nil")
-			actionController:Unlock("spell interrupted")
-			tryBeginBagRestack(eventName)
 			return
 		end
 

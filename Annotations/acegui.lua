@@ -27,6 +27,7 @@ function AceGUIWidget:Show() end
 function AceGUIWidget:IsShown() end
 
 ---@class AceGUIContainer: AceGUIWidget
+---@field children? AceGUIWidget[]
 local AceGUIContainer = {}
 
 ---@param child AceGUIWidget
@@ -109,6 +110,18 @@ function AceGUISlider:SetSliderValues(min, max, step) end
 ---@param value number
 function AceGUISlider:SetValue(value) end
 
+---@class AceGUIDropdown: AceGUIWidget
+local AceGUIDropdown = {}
+
+---@param text string?
+function AceGUIDropdown:SetLabel(text) end
+
+---@param list table
+function AceGUIDropdown:SetList(list) end
+
+---@param value string|number?
+function AceGUIDropdown:SetValue(value) end
+
 ---@class AceGUISimpleGroup: AceGUIContainer
 local AceGUISimpleGroup = {}
 
@@ -119,9 +132,14 @@ local AceGUIInlineGroup = {}
 function AceGUIInlineGroup:SetTitle(text) end
 
 ---@class AceGUIScrollFrame: AceGUIContainer
+---@field localstatus? table
 local AceGUIScrollFrame = {}
 
+---@param status table
+function AceGUIScrollFrame:SetStatusTable(status) end
+
 ---@class AceGUIWindow: AceGUIContainer
+---@field frame table
 local AceGUIWindow = {}
 
 ---@param text string?
@@ -139,6 +157,7 @@ function AceGUIWindow:EnableResize(enabled) end
 ---@field disabled? boolean
 
 ---@class AceGUITabGroup: AceGUIContainer
+---@field selected? string
 local AceGUITabGroup = {}
 
 ---@param text string?
@@ -160,6 +179,7 @@ local AceGUILib = {}
 ---@overload fun(self: AceGUILib, widgetType: "Icon"): AceGUIIcon
 ---@overload fun(self: AceGUILib, widgetType: "CheckBox"): AceGUICheckBox
 ---@overload fun(self: AceGUILib, widgetType: "Slider"): AceGUISlider
+---@overload fun(self: AceGUILib, widgetType: "Dropdown"): AceGUIDropdown
 ---@overload fun(self: AceGUILib, widgetType: "SimpleGroup"): AceGUISimpleGroup
 ---@overload fun(self: AceGUILib, widgetType: "InlineGroup"): AceGUIInlineGroup
 ---@overload fun(self: AceGUILib, widgetType: "ScrollFrame"): AceGUIScrollFrame

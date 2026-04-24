@@ -78,6 +78,19 @@ function SmartRez:CreateCraftActionController(options)
 		return self.isWaitingForBagSpace or self.unBlockButton > _GetTime()
 	end
 
+	function controller:GetLockState()
+		return string.format(
+			"blocked=%s remaining=%.2f waitingStart=%s waitingBag=%s inProgress=%s spell=%s timeout=%s",
+			tostring(self:IsBlocked()),
+			math.max(0, (self.unBlockButton or 0) - _GetTime()),
+			tostring(self.isWaitingForCraftStart),
+			tostring(self.isWaitingForBagSpace),
+			tostring(self.isCraftInProgress),
+			tostring(self.expectedSpellID or "nil"),
+			tostring(self.timeoutExpiredReason or "nil")
+		)
+	end
+
 	function controller:MarkDirty()
 		local markDirty = self.options.markDirty
 		if type(markDirty) == "function" then
@@ -102,7 +115,7 @@ function SmartRez:CreateCraftActionController(options)
 	end
 
 	function controller:Unlock(reason)
-		self:Debug("unlock", reason or "unknown")
+		self:Debug("unlock", reason or "unknown", self:GetLockState())
 		self:ClearEventState()
 		self:MarkDirty()
 	end
@@ -110,7 +123,7 @@ function SmartRez:CreateCraftActionController(options)
 	function controller:SetTimeout(seconds, reason)
 		self.unBlockButton = _GetTime() + seconds
 		self.pendingUnlockAt = self.unBlockButton
-		self:Debug("lock", reason or "timeout", "timeout", seconds)
+		self:Debug("lock", reason or "timeout", "timeout", seconds, self:GetLockState())
 	end
 
 	function controller:SetTimeoutSilently(seconds)
@@ -138,11 +151,13 @@ function SmartRez:CreateCraftActionController(options)
 
 			if self.pendingUnlockAt > 0 and _GetTime() >= self.pendingUnlockAt then
 				if self.isCraftInProgress then
+					self:Debug("timeout reached", self.options.activityTimeoutReason or "activity timeout", self:GetLockState())
 					self:Unlock(self.options.activityTimeoutReason or "activity timeout")
 				else
 					if self.isWaitingForCraftStart then
 						self:Debug("lock", "pending craft timed out")
 					end
+					self:Debug("timeout reached", self.timeoutExpiredReason or self.options.startTimeoutReason or "timeout", self:GetLockState())
 					self:Unlock(self.timeoutExpiredReason or self.options.startTimeoutReason or "timeout")
 				end
 			end
@@ -254,6 +269,77 @@ function SmartRez:CreateCraftActionController(options)
 		return true
 	end
 
+	function controller:HandleUnitSpellcastStart(unitToken, spellID, activityReason, activityTimeoutSeconds)
+		if unitToken ~= "player" or not self:IsBlocked() or not self:MatchesExpectedSpell(spellID) then
+			return false
+		end
+
+		self:Debug("spell event", "UNIT_SPELLCAST_START", unitToken, spellID or "nil")
+		self:RefreshActivityTimeout(activityTimeoutSeconds, activityReason)
+		return true
+	end
+
+	function controller:HandleUnitSpellcastComplete(unitToken, spellID, completionReason)
+		if unitToken ~= "player" or not self:IsBlocked() or not self:MatchesExpectedSpell(spellID) then
+			return false
+		end
+
+		self:Debug("spell event", completionReason or "spell complete", unitToken, spellID or "nil")
+		return true
+	end
+
+	function controller:HandleTradeSkillCraftStopped(reason)
+		if not self:IsBlocked() then
+			return false
+		end
+
+		self:Debug("trade skill event", reason or "UPDATE_TRADESKILL_CAST_STOPPED")
+		return true
+	end
+
+	function controller:HandleUnitSpellcastInterrupted(unitToken, spellID, reason)
+		if unitToken ~= "player" or not self:IsBlocked() or not self:MatchesExpectedSpell(spellID) then
+			return false
+		end
+
+		self:Debug("spell event", reason or "spell interrupted", unitToken, spellID or "nil")
+		self:Unlock(reason or "spell interrupted")
+		return true
+	end
+
+	function controller:HandleCraftEvent(eventName, ...)
+		if eventName == "TRADE_SKILL_CRAFT_BEGIN" then
+			return self:HandleTradeSkillCraftBegin(..., self.options.activityReason or "craft in progress", self.options.activityTimeoutSeconds)
+		end
+
+		if eventName == "UPDATE_TRADESKILL_CAST_STOPPED" then
+			return self:HandleTradeSkillCraftStopped(eventName)
+		end
+
+		if eventName == "BAG_UPDATE_DELAYED" then
+			return self:HandleBagUpdateWhileWaitingForSpace()
+		end
+
+		local unitToken, _, spellID = ...
+		if eventName == "UNIT_SPELLCAST_START" then
+			return self:HandleUnitSpellcastStart(unitToken, spellID, self.options.activityReason or "craft in progress")
+		end
+
+		if eventName == "UNIT_SPELLCAST_SUCCEEDED" or eventName == "UNIT_SPELLCAST_STOP" then
+			return self:HandleUnitSpellcastComplete(unitToken, spellID, eventName)
+		end
+
+		if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
+			return self:HandleUnitSpellcastFailed(unitToken, spellID, eventName)
+		end
+
+		if eventName == "UNIT_SPELLCAST_INTERRUPTED" then
+			return self:HandleUnitSpellcastInterrupted(unitToken, spellID, eventName)
+		end
+
+		return false
+	end
+
 	function controller:HandleBlockedClick()
 		if not self:IsBlocked() then
 			return false
@@ -262,6 +348,7 @@ function SmartRez:CreateCraftActionController(options)
 		if self.isWaitingForBagSpace then
 			self:Debug(
 				"blocked",
+				self:GetLockState(),
 				"waitingForBagSpace", "true",
 				"waitingForStart", tostring(self.isWaitingForCraftStart),
 				"craftInProgress", tostring(self.isCraftInProgress),
@@ -272,6 +359,7 @@ function SmartRez:CreateCraftActionController(options)
 
 		self:Debug(
 			"blocked",
+			self:GetLockState(),
 			"remaining", _format("%.2f", self.unBlockButton - _GetTime()),
 			"waitingForStart", tostring(self.isWaitingForCraftStart),
 			"craftInProgress", tostring(self.isCraftInProgress),

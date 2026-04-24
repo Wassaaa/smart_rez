@@ -150,10 +150,11 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		label = config.label,
 		debugPrefix = "Smart Rez: " .. config.label,
 		debugEnabled = function()
-			return resolveConfigValue(config, "debug") == true
+			return resolveConfigValue(config, "debug") == true or (SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled() == true)
 		end,
 		startTimeoutSeconds = 1,
 		activityTimeoutSeconds = 2,
+		activityReason = "craft in progress",
 		activityTimeoutReason = "craft in progress timeout",
 		startTimeoutReason = "craft start timeout",
 		markDirty = function()
@@ -163,6 +164,9 @@ function SmartRez:RegisterCraftRecipeAction(config)
 			controller.frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
 			controller.frame:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
 			controller.frame:RegisterEvent("BAG_UPDATE_DELAYED")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_START")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+			controller.frame:RegisterEvent("UNIT_SPELLCAST_STOP")
 			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
 			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
 			controller.frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
@@ -199,12 +203,13 @@ function SmartRez:RegisterCraftRecipeAction(config)
 				return
 			end
 
-			actionController.expectedSpellID = recipeInfo.skillLineAbilityID
+			actionController.expectedSpellID = recipeID
 		end
 
 		local target = SmartRez:GetCraftRecipeTarget(config.key)
 		if not target then
 			debugPrint(config, "no craft target", "profession", requiredProfession and tostring(SmartRez:HasProfession(requiredProfession)) or "none")
+			actionController:Debug("unlock request", "no craft target", actionController:GetLockState())
 			actionController:Unlock("no craft target")
 			return
 		end
@@ -228,6 +233,7 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		if config.lockButton then
 			actionController:BeginPendingStart(actionController.expectedSpellID)
 		else
+			actionController:Debug("unlock request", "lock disabled", actionController:GetLockState())
 			actionController:Unlock("lock disabled")
 		end
 
@@ -243,40 +249,13 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		SmartRez:MarkCraftRecipeCacheDirty()
 
 		if config.lockButton and result == false then
+			actionController:Debug("unlock request", "craft call failed", actionController:GetLockState())
 			actionController:Unlock("craft call failed")
 		end
 	end)
 
 	actionFrame:SetScript("OnEvent", function(_, eventName, ...)
-		if eventName == "TRADE_SKILL_CRAFT_BEGIN" then
-			local spellID = ...
-			if actionController:HandleTradeSkillCraftBegin(spellID, "craft in progress") then
-				actionController:Debug("lock", "craft in progress", "spell", spellID or "nil")
-			end
-			return
-		end
-
-		if eventName == "UPDATE_TRADESKILL_CAST_STOPPED" then
-			actionController:Debug("trade skill event", eventName)
-			actionController:Unlock("trade skill stopped")
-			return
-		end
-
-		if eventName == "BAG_UPDATE_DELAYED" then
-			actionController:HandleBagUpdateWhileWaitingForSpace()
-			return
-		end
-
-		local unit, _, spellID = ...
-		if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
-			actionController:HandleUnitSpellcastFailed(unit, spellID, eventName)
-			return
-		end
-
-		if unit == "player" then
-			actionController:Debug("spell event", eventName)
-			actionController:Unlock(eventName)
-		end
+		actionController:HandleCraftEvent(eventName, ...)
 	end)
 
 	SmartRez:RegisterBindableAction({

@@ -322,7 +322,11 @@ function SmartRez:GetCraftSalvageProfessions(availableOnly)
 	return getSortedConfigs(self.craftSalvageProfessions, availableOnly)
 end
 
-function SmartRez:GetCraftSalvageWhitelistStorageKey(professionKey)
+function SmartRez:GetCraftSalvageWhitelistStorageKey(professionKey, contextKey)
+	if contextKey then
+		return "context:" .. tostring(contextKey)
+	end
+
 	local selection = professionKey and self:GetCraftSalvageSelection(professionKey) or nil
 	return getCraftSalvageWhitelistStorageKey(professionKey, selection)
 end
@@ -352,13 +356,14 @@ local function normalizeCraftSalvageWhitelistStorage(storage)
 end
 
 -- Keep salvage whitelists character-scoped and tied to the currently selected recipe.
-function SmartRez:GetCraftSalvageWhitelistStorage(professionKey)
+function SmartRez:GetCraftSalvageWhitelistStorage(professionKey, contextKey)
 	self:EnsureConfig()
 
-	local storageKey = self:GetCraftSalvageWhitelistStorageKey(professionKey)
+	local resolvedContextKey = contextKey or self:GetActiveCraftSalvageWhitelistContextKey(professionKey)
+	local storageKey = self:GetCraftSalvageWhitelistStorageKey(professionKey, resolvedContextKey)
 	local whitelists = self.db.salvageWhitelists
 
-	if type(whitelists[storageKey]) ~= "table" then
+	if not resolvedContextKey and type(whitelists[storageKey]) ~= "table" then
 		for _, sourceKey in ipairs(getLegacyWhitelistSourceKeys(professionKey)) do
 			if sourceKey ~= storageKey and type(whitelists[sourceKey]) == "table" then
 				whitelists[storageKey] = whitelists[sourceKey]
@@ -372,12 +377,12 @@ function SmartRez:GetCraftSalvageWhitelistStorage(professionKey)
 	return whitelists[storageKey]
 end
 
-function SmartRez:GetCraftSalvageWhitelist(professionKey)
-	return self:GetCraftSalvageWhitelistStorage(professionKey).targetItems
+function SmartRez:GetCraftSalvageWhitelist(professionKey, contextKey)
+	return self:GetCraftSalvageWhitelistStorage(professionKey, contextKey).targetItems
 end
 
-function SmartRez:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
-	local storage = self:GetCraftSalvageWhitelistStorage(professionKey)
+function SmartRez:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey)
+	local storage = self:GetCraftSalvageWhitelistStorage(professionKey, contextKey)
 
 	if type(storage.reagentSlots[dataSlotIndex]) ~= "table" then
 		storage.reagentSlots[dataSlotIndex] = {}
@@ -396,7 +401,7 @@ local function itemListContains(itemIDs, itemID)
 	return false
 end
 
-function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh)
+function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh, contextKey)
 	if not professionKey or not itemID or not self.craftSalvageProfessions[professionKey] then
 		return
 	end
@@ -407,7 +412,7 @@ function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID, skipRefres
 		return
 	end
 
-	local whitelist = self:GetCraftSalvageWhitelist(professionKey)
+	local whitelist = self:GetCraftSalvageWhitelist(professionKey, contextKey)
 	whitelist[itemID] = true
 	self:MarkCraftSalvageCacheDirty()
 	if not skipRefresh then
@@ -415,7 +420,7 @@ function SmartRez:AddCraftSalvageWhitelistItem(professionKey, itemID, skipRefres
 	end
 end
 
-function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh)
+function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh, contextKey)
 	if not professionKey or not dataSlotIndex or not itemID or not self.craftSalvageProfessions[professionKey] then
 		return
 	end
@@ -436,7 +441,7 @@ function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotInd
 		return
 	end
 
-	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
+	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey)
 	whitelist[itemID] = true
 	self:MarkCraftSalvageCacheDirty()
 	if not skipRefresh then
@@ -444,8 +449,8 @@ function SmartRez:AddCraftSalvageReagentWhitelistItem(professionKey, dataSlotInd
 	end
 end
 
-function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh)
-	local whitelist = self:GetCraftSalvageWhitelist(professionKey)
+function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh, contextKey)
+	local whitelist = self:GetCraftSalvageWhitelist(professionKey, contextKey)
 	whitelist[itemID] = nil
 	self:MarkCraftSalvageCacheDirty()
 	if not skipRefresh then
@@ -453,8 +458,8 @@ function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID, skipRef
 	end
 end
 
-function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh)
-	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex)
+function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh, contextKey)
+	local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey)
 	whitelist[itemID] = nil
 	self:MarkCraftSalvageCacheDirty()
 	if not skipRefresh then
@@ -481,9 +486,9 @@ local function buildAllowedItemSet(allowedItemIDs, customWhitelist)
 	return allowedItems
 end
 
-function SmartRez:GetCraftSalvageAllowedTargetItems(professionKey)
+function SmartRez:GetCraftSalvageAllowedTargetItems(professionKey, contextKey)
 	local selection = self:GetCraftSalvageSelection(professionKey)
-	return buildAllowedItemSet(selection and selection.salvageTargetItemIDs, self:GetCraftSalvageWhitelist(professionKey))
+	return buildAllowedItemSet(selection and selection.salvageTargetItemIDs, self:GetCraftSalvageWhitelist(professionKey, contextKey))
 end
 
 function SmartRez:GetCraftSalvageReagentSlots(professionKey)
@@ -491,12 +496,12 @@ function SmartRez:GetCraftSalvageReagentSlots(professionKey)
 	return selection and selection.reagentSlots or {}
 end
 
-function SmartRez:GetCraftSalvageAllowedReagentItems(professionKey, dataSlotIndex)
+function SmartRez:GetCraftSalvageAllowedReagentItems(professionKey, dataSlotIndex, contextKey)
 	local reagentSlots = self:GetCraftSalvageReagentSlots(professionKey)
 
 	for _, reagentSlot in ipairs(reagentSlots) do
 		if reagentSlot.dataSlotIndex == dataSlotIndex then
-			return buildAllowedItemSet(reagentSlot.allowedItemIDs, self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex))
+			return buildAllowedItemSet(reagentSlot.allowedItemIDs, self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey))
 		end
 	end
 
@@ -509,6 +514,10 @@ function SmartRez:GetCraftSalvageSelection(professionKey)
 	local profession = self:GetCraftSalvageProfession(professionKey)
 	if not profession then
 		return nil
+	end
+
+	if self.activeCraftSalvageSelections and type(self.activeCraftSalvageSelections[professionKey]) == "table" then
+		return self.activeCraftSalvageSelections[professionKey]
 	end
 
 	local savedSelection = self.db.salvageSelections[professionKey]
