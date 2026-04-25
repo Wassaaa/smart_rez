@@ -8,6 +8,7 @@ dispatcher:SetAttribute("type", "click")
 
 SmartRez.goldPrinterStepIndex = SmartRez.goldPrinterStepIndex or 1
 SmartRez.goldPrinterDebugState = SmartRez.goldPrinterDebugState or {}
+SmartRez.goldPrinterRuntime = SmartRez.goldPrinterRuntime or {}
 
 local function debugPrint(...)
 	if not (SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled()) then
@@ -69,6 +70,60 @@ local function getRoutineSteps()
 	return routine and routine.steps or {}
 end
 
+local function getNow()
+	if GetTimePreciseSec then
+		return GetTimePreciseSec()
+	end
+	return GetTime()
+end
+
+local function getRuntime()
+	local routine = getSelectedRoutine()
+	local routineKey = routine and routine.key or "none"
+	local runtime = SmartRez.goldPrinterRuntime
+
+	if runtime.routineKey ~= routineKey then
+		runtime.routineKey = routineKey
+		runtime.unlockedTimedSteps = {}
+		runtime.actionCounts = {}
+		runtime.intervalBatchCounts = {}
+		runtime.lastIntervalDispatch = runtime.lastIntervalDispatch or {}
+	end
+
+	runtime.unlockedTimedSteps = runtime.unlockedTimedSteps or {}
+	runtime.actionCounts = runtime.actionCounts or {}
+	runtime.intervalBatchCounts = runtime.intervalBatchCounts or {}
+	runtime.lastIntervalDispatch = runtime.lastIntervalDispatch or {}
+	return runtime
+end
+
+local function getStepRuntimeKey(routineKey, stepIndex)
+	return tostring(routineKey) .. ":" .. tostring(stepIndex)
+end
+
+local function getStepCompletionMode(step)
+	return step and step.completionMode or "untilNoTargets"
+end
+
+local function getStepActionCount(step)
+	return math.max(1, math.floor(tonumber(step and step.actionCount) or 1))
+end
+
+local function getStepIntervalSeconds(step)
+	return math.max(1, math.floor(tonumber(step and step.intervalSeconds) or 900))
+end
+
+local function isTimedPriorityStep(step)
+	return getStepCompletionMode(step) == "interval"
+end
+
+local function resetCycleRuntime()
+	local runtime = getRuntime()
+	runtime.unlockedTimedSteps = {}
+	runtime.actionCounts = {}
+	runtime.intervalBatchCounts = {}
+end
+
 local function clampStepIndex()
 	local steps = getRoutineSteps()
 	if #steps == 0 then
@@ -102,10 +157,19 @@ local function advanceStep()
 	SmartRez.goldPrinterStepIndex = SmartRez.goldPrinterStepIndex + 1
 	if SmartRez.goldPrinterStepIndex > #steps then
 		SmartRez.goldPrinterStepIndex = 1
+		resetCycleRuntime()
 	end
 
 	debugPrint("advance step", previousStep, "->", SmartRez.goldPrinterStepIndex)
 	refreshViews()
+end
+
+local function unlockTimedStep(routineKey, stepIndex, step)
+	if not isTimedPriorityStep(step) then
+		return
+	end
+
+	getRuntime().unlockedTimedSteps[getStepRuntimeKey(routineKey, stepIndex)] = true
 end
 
 local function activateStepContexts(routineKey, stepIndex, step)
@@ -168,8 +232,80 @@ local function hasDisenchantWork()
 	return hasTarget
 end
 
+local function isIntervalStepEligible(routineKey, stepIndex, step)
+	local runtime = getRuntime()
+	local key = getStepRuntimeKey(routineKey, stepIndex)
+	local targetCount = getStepActionCount(step)
+	local batchCount = runtime.intervalBatchCounts[key] or 0
+
+	if batchCount > 0 and batchCount < targetCount then
+		return true
+	end
+
+	local lastDispatch = runtime.lastIntervalDispatch[key]
+	if not lastDispatch then
+		return true
+	end
+
+	if getNow() - lastDispatch >= getStepIntervalSeconds(step) then
+		runtime.intervalBatchCounts[key] = 0
+		return true
+	end
+
+	return false
+end
+
+local function isStepAlreadyComplete(routineKey, stepIndex, step)
+	local mode = getStepCompletionMode(step)
+	local key = getStepRuntimeKey(routineKey, stepIndex)
+	local runtime = getRuntime()
+
+	if mode == "once" then
+		return (runtime.actionCounts[key] or 0) >= 1
+	elseif mode == "count" then
+		return (runtime.actionCounts[key] or 0) >= getStepActionCount(step)
+	elseif mode == "interval" then
+		return not isIntervalStepEligible(routineKey, stepIndex, step)
+	end
+
+	return false
+end
+
+local function recordStepDispatch(routineKey, stepIndex, step)
+	local mode = getStepCompletionMode(step)
+	if mode == "untilNoTargets" then
+		return false
+	end
+
+	local key = getStepRuntimeKey(routineKey, stepIndex)
+	local runtime = getRuntime()
+	local targetCount = getStepActionCount(step)
+
+	if mode == "interval" then
+		local count = (runtime.intervalBatchCounts[key] or 0) + 1
+		runtime.intervalBatchCounts[key] = count
+		if count >= targetCount then
+			runtime.lastIntervalDispatch[key] = getNow()
+			runtime.intervalBatchCounts[key] = 0
+			debugPrint("interval step satisfied", stepIndex, "count", count, "interval", getStepIntervalSeconds(step))
+			return true
+		end
+		return false
+	end
+
+	local count = (runtime.actionCounts[key] or 0) + 1
+	runtime.actionCounts[key] = count
+	debugPrint("count step progress", stepIndex, count .. "/" .. targetCount)
+	return count >= targetCount
+end
+
 local function getStepAction(routineKey, stepIndex, step, down)
 	activateStepContexts(routineKey, stepIndex, step)
+	unlockTimedStep(routineKey, stepIndex, step)
+
+	if isStepAlreadyComplete(routineKey, stepIndex, step) then
+		return nil, true
+	end
 
 	if step.type == "recipeCraft" then
 		if not step.recipeConfig or not step.recipeConfig.recipeID then
@@ -243,9 +379,31 @@ local function chooseAction(down)
 	for _ = 1, #steps do
 		local stepIndex = SmartRez.goldPrinterStepIndex
 		local step = steps[stepIndex]
+
+		for priorityIndex = 1, stepIndex - 1 do
+			local priorityStep = steps[priorityIndex]
+			local priorityKey = getStepRuntimeKey(routine.key, priorityIndex)
+			if isTimedPriorityStep(priorityStep) and getRuntime().unlockedTimedSteps[priorityKey] and isIntervalStepEligible(routine.key, priorityIndex, priorityStep) then
+				local priorityAction, priorityComplete = getStepAction(routine.key, priorityIndex, priorityStep, down)
+				if priorityAction then
+					debugStateChanged("chooseAction", "choose timed priority", tostring(priorityIndex), SmartRez:GetGoldPrinterRoutineStepLabel(priorityStep))
+					if recordStepDispatch(routine.key, priorityIndex, priorityStep) then
+						refreshViews()
+					end
+					return priorityAction
+				elseif not priorityComplete then
+					debugStateChanged("chooseAction", "timed priority incomplete", tostring(priorityIndex), SmartRez:GetGoldPrinterRoutineStepLabel(priorityStep))
+					return nil
+				end
+			end
+		end
+
 		local action, stepComplete = getStepAction(routine.key, stepIndex, step, down)
 		if action then
 			debugStateChanged("chooseAction", "choose action", tostring(stepIndex), SmartRez:GetGoldPrinterRoutineStepLabel(step))
+			if recordStepDispatch(routine.key, stepIndex, step) then
+				advanceStep()
+			end
 			return action
 		end
 
@@ -298,6 +456,7 @@ stateFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 stateFrame:SetScript("OnEvent", function(_, eventName)
 	if eventName == "PLAYER_ENTERING_WORLD" then
 		resetStepIndex()
+		resetCycleRuntime()
 		clearStepContexts()
 	end
 end)

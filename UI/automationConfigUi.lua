@@ -13,10 +13,19 @@ SmartRez.managedFrames = SmartRez.managedFrames or {}
 ---@field tabs AceGUITabGroup
 ---@field selectedGroup string?
 ---@field scrollStatuses table<string, table>
+---@field activeScroll AceGUIScrollFrame?
 local automationConfigFrame
 
 local WINDOW_WIDTH = 680
 local WINDOW_HEIGHT = 600
+
+local function debugPrint(...)
+	if not (SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled()) then
+		return
+	end
+
+	print("SmartRez UI:", ...)
+end
 
 local function getAutomationTabValue(professionKey)
 	return "salvage:" .. tostring(professionKey)
@@ -70,20 +79,77 @@ local function renderAutomationFooter(parent)
 	footerGroup:AddChild(closeButton)
 end
 
+local function getAutomationScrollStatus(groupValue)
+	automationConfigFrame.scrollStatuses = automationConfigFrame.scrollStatuses or {}
+	automationConfigFrame.scrollStatuses[groupValue] = automationConfigFrame.scrollStatuses[groupValue] or { scrollvalue = 0 }
+	return automationConfigFrame.scrollStatuses[groupValue]
+end
+
+local function getSelectedAutomationTab()
+	local tabs = automationConfigFrame and automationConfigFrame.tabs or nil
+	local status = tabs and (tabs.status or tabs.localstatus) or nil
+	return status and status.selected or nil
+end
+
 local function captureAutomationScrollStatus(groupValue)
 	if not automationConfigFrame or not automationConfigFrame.tabs or not groupValue then
 		return
 	end
 
 	---@type AceGUIScrollFrame?
-	local selectedChild = automationConfigFrame.tabs.children and automationConfigFrame.tabs.children[1] or nil
-	if not selectedChild or not selectedChild.localstatus then
+	local selectedChild = automationConfigFrame.activeScroll or (automationConfigFrame.tabs.children and automationConfigFrame.tabs.children[1]) or nil
+	if not selectedChild then
 		return
 	end
 
-	automationConfigFrame.scrollStatuses = automationConfigFrame.scrollStatuses or {}
-	automationConfigFrame.scrollStatuses[groupValue] = automationConfigFrame.scrollStatuses[groupValue] or {}
-	automationConfigFrame.scrollStatuses[groupValue].scrollvalue = selectedChild.localstatus.scrollvalue or automationConfigFrame.scrollStatuses[groupValue].scrollvalue or 0
+	local status = getAutomationScrollStatus(groupValue)
+	local sourceStatus = selectedChild.status or selectedChild.localstatus
+	if selectedChild.scrollbar and selectedChild.scrollbar.GetValue then
+		status.scrollvalue = selectedChild.scrollbar:GetValue() or status.scrollvalue or 0
+	else
+		status.scrollvalue = sourceStatus and sourceStatus.scrollvalue or status.scrollvalue or 0
+	end
+	status.offset = sourceStatus and sourceStatus.offset or status.offset or 0
+	debugPrint("capture scroll", tostring(groupValue), "value", string.format("%.2f", status.scrollvalue or 0), "offset", tostring(status.offset or 0))
+end
+
+function SmartRez:CaptureAutomationConfigScrollStatus()
+	if automationConfigFrame then
+		captureAutomationScrollStatus(automationConfigFrame.selectedGroup)
+	end
+end
+
+local function getAutomationScrollSnapshot(groupValue)
+	local status = getAutomationScrollStatus(groupValue)
+	return {
+		scrollvalue = status.scrollvalue or 0,
+		offset = status.offset or 0,
+	}
+end
+
+---@param scroll AceGUIScrollFrame
+local function restoreAutomationScrollStatus(scroll, groupValue, snapshot)
+	local status = getAutomationScrollStatus(groupValue)
+	local restoreStatus = snapshot or status
+	local function apply()
+		if automationConfigFrame and automationConfigFrame.activeScroll == scroll and scroll.SetScroll then
+			status.scrollvalue = restoreStatus.scrollvalue or 0
+			status.offset = restoreStatus.offset or status.offset or 0
+			scroll:SetScroll(status.scrollvalue or 0)
+		end
+	end
+
+	if scroll.SetScroll then
+		debugPrint("restore scroll", tostring(groupValue), "value", string.format("%.2f", restoreStatus.scrollvalue or 0), "offset", tostring(restoreStatus.offset or 0))
+		apply()
+		C_Timer.After(0, apply)
+		C_Timer.After(0.05, apply)
+		C_Timer.After(0.15, function()
+			if automationConfigFrame and automationConfigFrame.activeScroll == scroll and scroll.SetScroll then
+				scroll:SetScroll(status.scrollvalue or 0)
+			end
+		end)
+	end
 end
 
 ---@param scroll AceGUIContainer
@@ -101,23 +167,36 @@ local function renderSelectedAutomationTab(scroll, groupValue)
 end
 
 ---@param tabGroup AceGUITabGroup
-local function renderAutomationGroup(tabGroup, groupValue)
-	captureAutomationScrollStatus(groupValue)
+---@param preserveScroll boolean?
+local function renderAutomationGroup(tabGroup, groupValue, preserveScroll)
+	debugPrint("render group", tostring(groupValue), "preserve", tostring(preserveScroll), "aceSelected", tostring(getSelectedAutomationTab()))
+	if preserveScroll and automationConfigFrame and automationConfigFrame.activeScroll then
+		local scroll = automationConfigFrame.activeScroll
+		captureAutomationScrollStatus(groupValue)
+		local scrollSnapshot = getAutomationScrollSnapshot(groupValue)
+		scroll:ReleaseChildren()
+		renderSelectedAutomationTab(scroll, groupValue)
+		renderAutomationFooter(scroll)
+		restoreAutomationScrollStatus(scroll, groupValue, scrollSnapshot)
+		return
+	end
+
 	tabGroup:ReleaseChildren()
 
+	---@type AceGUIScrollFrame
 	local scroll = AceGUI:Create("ScrollFrame")
 	scroll:SetLayout("List")
 	scroll:SetFullWidth(true)
 	scroll:SetFullHeight(true)
 	if automationConfigFrame then
-		automationConfigFrame.scrollStatuses = automationConfigFrame.scrollStatuses or {}
-		automationConfigFrame.scrollStatuses[groupValue] = automationConfigFrame.scrollStatuses[groupValue] or {}
-		scroll:SetStatusTable(automationConfigFrame.scrollStatuses[groupValue])
+		automationConfigFrame.activeScroll = scroll
+		scroll:SetStatusTable(getAutomationScrollStatus(groupValue))
 	end
 	tabGroup:AddChild(scroll)
 
 	renderSelectedAutomationTab(scroll, groupValue)
 	renderAutomationFooter(scroll)
+	restoreAutomationScrollStatus(scroll, groupValue)
 end
 
 local function createAutomationConfigWindow()
@@ -143,12 +222,16 @@ local function createAutomationConfigWindow()
 	automationConfigFrame.tabs = AceGUI:Create("TabGroup")
 	automationConfigFrame.tabs:SetLayout("Fill")
 	automationConfigFrame.tabs:SetCallback("OnGroupSelected", function(_, _, groupValue)
+		debugPrint("tab selected", tostring(groupValue), "previous", tostring(automationConfigFrame.selectedGroup))
+		captureAutomationScrollStatus(automationConfigFrame.selectedGroup)
 		automationConfigFrame.selectedGroup = groupValue
-		renderAutomationGroup(automationConfigFrame.tabs, groupValue)
+		renderAutomationGroup(automationConfigFrame.tabs, groupValue, false)
 	end)
 	automationConfigFrame:AddChild(automationConfigFrame.tabs)
 
 	function automationConfigFrame:Refresh()
+		captureAutomationScrollStatus(self.selectedGroup)
+
 		local tabs = buildAutomationTabs()
 		self.tabs:SetTabs(tabs)
 
@@ -158,8 +241,10 @@ local function createAutomationConfigWindow()
 		end
 
 		self.selectedGroup = selectedGroup
-		if self.tabs.selected == selectedGroup then
-			renderAutomationGroup(self.tabs, selectedGroup)
+		local aceSelectedGroup = getSelectedAutomationTab()
+		debugPrint("refresh", tostring(selectedGroup), "aceSelected", tostring(aceSelectedGroup))
+		if aceSelectedGroup == selectedGroup then
+			renderAutomationGroup(self.tabs, selectedGroup, true)
 		else
 			self.tabs:SelectTab(selectedGroup)
 		end

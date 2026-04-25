@@ -43,6 +43,12 @@ local DEFAULT_GOLD_PRINTER_SALVAGE_WHITELIST = {
 	},
 	reagentSlots = {},
 }
+local GOLD_PRINTER_COMPLETION_MODES = {
+	untilNoTargets = "Until no targets",
+	once = "Once, then next step",
+	count = "Fixed number of actions",
+	interval = "Timed priority",
+}
 local ensureDisenchantWhitelistStore
 
 local function copyTable(source)
@@ -172,7 +178,14 @@ local function normalizeRoutineStep(step)
 
 	local normalized = {
 		type = stepType,
+		completionMode = step.completionMode or "untilNoTargets",
+		actionCount = math.max(1, math.floor(tonumber(step.actionCount) or 1)),
+		intervalSeconds = math.max(1, math.floor(tonumber(step.intervalSeconds) or 900)),
 	}
+
+	if not GOLD_PRINTER_COMPLETION_MODES[normalized.completionMode] then
+		normalized.completionMode = "untilNoTargets"
+	end
 
 	if stepType == "recipeCraft" then
 		normalized.recipeConfig = copyTable(step.recipeConfig)
@@ -503,6 +516,45 @@ function SmartRez:SetGoldPrinterRoutineStepType(stepIndex, stepType)
 	routine.steps[stepIndex] = normalizeRoutineStep({
 		type = stepType,
 	})
+	refreshViews()
+end
+
+function SmartRez:GetGoldPrinterStepCompletionModeList()
+	return copyTable(GOLD_PRINTER_COMPLETION_MODES)
+end
+
+function SmartRez:SetGoldPrinterRoutineStepCompletionMode(stepIndex, completionMode)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step or not GOLD_PRINTER_COMPLETION_MODES[completionMode] then
+		return
+	end
+
+	step.completionMode = completionMode
+	refreshViews()
+end
+
+function SmartRez:SetGoldPrinterRoutineStepActionCount(stepIndex, value, skipRefresh)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step then
+		return
+	end
+
+	step.actionCount = math.max(1, math.floor(tonumber(value) or 1))
+	if not skipRefresh then
+		refreshViews()
+	end
+end
+
+function SmartRez:SetGoldPrinterRoutineStepIntervalSeconds(stepIndex, value)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step then
+		return
+	end
+
+	step.intervalSeconds = math.max(1, math.floor(tonumber(value) or 900))
 	refreshViews()
 end
 

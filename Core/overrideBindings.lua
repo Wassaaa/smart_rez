@@ -60,7 +60,7 @@ end
 
 function SmartRez:RefreshViews()
   for _, frame in ipairs(self.managedFrames or {}) do
-    if frame.Refresh then
+    if frame.Refresh and (not frame.IsShown or frame:IsShown()) then
       frame:Refresh()
     end
   end

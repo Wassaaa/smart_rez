@@ -133,10 +133,14 @@ function AceGUIInlineGroup:SetTitle(text) end
 
 ---@class AceGUIScrollFrame: AceGUIContainer
 ---@field localstatus? table
+---@field status? table
 local AceGUIScrollFrame = {}
 
 ---@param status table
 function AceGUIScrollFrame:SetStatusTable(status) end
+
+---@param value number
+function AceGUIScrollFrame:SetScroll(value) end
 
 ---@class AceGUIWindow: AceGUIContainer
 ---@field frame table
