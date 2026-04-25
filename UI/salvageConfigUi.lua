@@ -110,6 +110,18 @@ function UI.RenderCraftSalvageTab(parent, profession)
 	end)
 	summary:AddChild(recipeButton)
 
+	if selection then
+		local requireProfessionOpen = AceGUI:Create("CheckBox")
+		requireProfessionOpen:SetLabel("Require profession window open")
+		requireProfessionOpen:SetValue(selection.requireProfessionOpen ~= false)
+		requireProfessionOpen:SetCallback("OnValueChanged", function(_, _, value)
+			SmartRez:SetCraftSalvageRequireProfessionOpen(profession.key, value == true, true)
+		end)
+		summary:AddChild(requireProfessionOpen)
+
+		UI.AddLabel(summary, "Turn this off only for salvage recipes you have verified can craft directly without the profession window/backend being opened first.", "7D8590")
+	end
+
 	UI.AddSectionSpacer(summary)
 
 	local target = SmartRez:GetCraftSalvageTarget(profession.key)

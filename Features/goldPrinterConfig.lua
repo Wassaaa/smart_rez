@@ -20,6 +20,7 @@ local DEFAULT_GOLD_PRINTER_DISENCHANT_WHITELIST = {
 }
 local DEFAULT_GOLD_PRINTER_SALVAGE_SELECTION = {
 	openTradeSkillID = 333,
+	requireProfessionOpen = true,
 	sortBagsWhenEmpty = false,
 	recipeKey = "shattering",
 	requiredStack = 1,
@@ -199,6 +200,9 @@ local function normalizeRoutineStep(step)
 		end
 	elseif stepType == "craftSalvage" then
 		normalized.selection = copyTable(step.selection)
+		if normalized.selection and normalized.selection.requireProfessionOpen == nil then
+			normalized.selection.requireProfessionOpen = true
+		end
 	end
 
 	return normalized
@@ -725,6 +729,7 @@ function SmartRez:CaptureGoldPrinterSalvageStep(stepIndex)
 	end
 
 	local registeredRecipe = self:FindCraftSalvageRecipeByRecipeID(currentState.recipeID, profession.key)
+	local requireProfessionOpen = not (step.selection and step.selection.requireProfessionOpen == false)
 	local resolvedDetails = {
 		label = currentState.label,
 		requiredStack = getGoldPrinterRequiredStack(currentState),
@@ -740,6 +745,7 @@ function SmartRez:CaptureGoldPrinterSalvageStep(stepIndex)
 		recipeID = currentState.recipeID,
 		requiredProfession = currentState.requiredProfession,
 		openTradeSkillID = currentState.openTradeSkillID,
+		requireProfessionOpen = requireProfessionOpen,
 		requiredStack = resolvedDetails.requiredStack or 1,
 		salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs or {},
 		reagentSlots = resolvedDetails.reagentSlots or {},
@@ -750,6 +756,20 @@ function SmartRez:CaptureGoldPrinterSalvageStep(stepIndex)
 	}
 	refreshViews()
 	return true
+end
+
+function SmartRez:SetGoldPrinterSalvageRequireProfessionOpen(stepIndex, requireProfessionOpen, skipRefresh)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step or step.type ~= "craftSalvage" or type(step.selection) ~= "table" then
+		return
+	end
+
+	step.selection.requireProfessionOpen = requireProfessionOpen == true
+	self:MarkCraftSalvageCacheDirty()
+	if not skipRefresh then
+		refreshViews()
+	end
 end
 
 function SmartRez:GetGoldPrinterRoutineStepTypeList()

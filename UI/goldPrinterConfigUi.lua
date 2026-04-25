@@ -177,6 +177,18 @@ local function renderCraftSalvageStepControls(stepGroup, stepIndex, step)
 		end
 	end)
 	stepGroup:AddChild(recipeButton)
+
+	if step.selection then
+		local requireProfessionOpen = AceGUI:Create("CheckBox")
+		requireProfessionOpen:SetLabel("Require profession window open")
+		requireProfessionOpen:SetValue(step.selection.requireProfessionOpen ~= false)
+		requireProfessionOpen:SetCallback("OnValueChanged", function(_, _, value)
+			SmartRez:SetGoldPrinterSalvageRequireProfessionOpen(stepIndex, value == true, true)
+		end)
+		stepGroup:AddChild(requireProfessionOpen)
+
+		UI.AddLabel(stepGroup, "Turn this off only for salvage recipes you have verified can craft directly without the profession window/backend being opened first.", "7D8590")
+	end
 end
 
 local function renderStepCompletionControls(stepGroup, stepIndex, step)

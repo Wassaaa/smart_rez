@@ -256,12 +256,15 @@ function SmartRez:RegisterCraftSalvageProfession(config)
 			return
 		end
 
+		local requireProfessionOpen = selection.requireProfessionOpen ~= false
 		local openTradeSkillID = selection.openTradeSkillID or config.professionID
-		if not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
+		if requireProfessionOpen and not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
 			return
 		end
 
-		SmartRez:OpenCraftRecipeByID(actionController, selection.recipeID)
+		if requireProfessionOpen then
+			SmartRez:OpenCraftRecipeByID(actionController, selection.recipeID)
+		end
 		if SmartRez.RebuildInventoryCounts then
 			SmartRez:RebuildInventoryCounts()
 		end

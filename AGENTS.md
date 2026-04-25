@@ -37,6 +37,7 @@ Retail secure buttons and profession access are fragile. Preserve these patterns
 
 - Do not call `C_TradeSkillUI.OpenTradeSkill(...)` from passive refresh paths, cache rebuilds, config setters, or inventory scans.
 - Protected profession opening must happen from a user click path.
+- Recipe craft and salvage selections have `requireProfessionOpen` flags. Default to `true`, but allow verified recipes to skip opening/selecting the profession UI and call the craft API directly.
 - For remote storage/profession backend access, use `Core/professionProxy.lua`:
   - `SmartRez:IsProfessionProxyReady(professionID)`
   - `SmartRez:OpenProfessionProxy(professionID)`
@@ -56,6 +57,8 @@ Retail secure buttons and profession access are fragile. Preserve these patterns
 
 - Keep the bindable button macro-based.
 - Use hidden secure helper buttons for spell targeting/verification.
+- Player-bag disenchant does not need the profession window open.
+- Warbank/remote-source disenchant may need the Enchanting backend primed; keep that automatic through the profession proxy instead of adding a manual "require profession window" toggle.
 - Preserve the event-driven lock around `UNIT_SPELLCAST_*`, item lock/unlock, item push, and loot events.
 - Do not re-enable disenchant during the cast-success to loot handoff.
 - Preserve fast-loot behavior unless replacing the whole flow deliberately.
@@ -79,6 +82,9 @@ AceGUI custom UI lives in `UI/`.
 - Keep feature tab files thin and composition/config oriented.
 - Improve `Annotations/acegui.lua` when AceGUI types are unclear.
 - Do not add annotation files to the TOC.
+- AceGUI widgets are pooled. Any custom frame regions, textures, callbacks, or ticker closures attached to widgets must clean up on `OnRelease` or otherwise stop updating released widgets.
+- Use AceGUI status tables via shared helpers for movable window positions; do not hand-roll separate position systems unless needed.
+- Bag Value's timer/rate session is display-scoped: it starts while `/sr value` or the Bag Value tab is visible and resets when all Bag Value displays close. Window position is saved, timer state is not.
 
 ## Integrations
 

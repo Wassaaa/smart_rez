@@ -97,6 +97,9 @@ local function syncSelectionWithRegisteredRecipe(selection, fallback)
 	selection.label = fallback.label or selection.label
 	selection.requiredProfession = fallback.requiredProfession or selection.requiredProfession
 	selection.openTradeSkillID = fallback.openTradeSkillID or selection.openTradeSkillID
+	if selection.requireProfessionOpen == nil then
+		selection.requireProfessionOpen = fallback.requireProfessionOpen ~= false
+	end
 	selection.requiredStack = fallback.requiredStack or selection.requiredStack
 	selection.salvageTargetItemIDs = copyTable(fallback.salvageTargetItemIDs or selection.salvageTargetItemIDs)
 	selection.reagentSlots = copyTable(fallback.reagentSlots or selection.reagentSlots)
@@ -275,6 +278,7 @@ local function buildSelectionFromRecipe(profession, recipeConfig, isDefault)
 		recipeID = recipeConfig.recipeID,
 		requiredProfession = profession.professionID,
 		openTradeSkillID = profession.professionID,
+		requireProfessionOpen = recipeConfig.requireProfessionOpen ~= false,
 		requiredStack = resolvedDetails.requiredStack,
 		salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs,
 		reagentSlots = resolvedDetails.reagentSlots,
@@ -533,6 +537,9 @@ function SmartRez:GetCraftSalvageSelection(professionKey)
 		selection.professionLabel = profession.label
 		selection.requiredProfession = selection.requiredProfession or profession.professionID
 		selection.openTradeSkillID = selection.openTradeSkillID or profession.professionID
+		if selection.requireProfessionOpen == nil then
+			selection.requireProfessionOpen = true
+		end
 		selection.requiredStack = selection.requiredStack or 1
 		selection.salvageTargetItemIDs = selection.salvageTargetItemIDs or {}
 		selection.reagentSlots = selection.reagentSlots or {}
@@ -545,7 +552,7 @@ function SmartRez:GetCraftSalvageSelection(professionKey)
 	return buildSelectionFromRecipe(profession, defaultRecipe, true)
 end
 
-function SmartRez:SetCraftSalvageSelection(professionKey, selection)
+function SmartRez:SetCraftSalvageSelection(professionKey, selection, skipRefresh)
 	local profession = self:GetCraftSalvageProfession(professionKey)
 	if not profession then
 		return
@@ -554,7 +561,19 @@ function SmartRez:SetCraftSalvageSelection(professionKey, selection)
 	self:EnsureConfig()
 	self.db.salvageSelections[professionKey] = copyTable(selection or {})
 	self:MarkCraftSalvageCacheDirty()
-	self:RefreshViews()
+	if not skipRefresh then
+		self:RefreshViews()
+	end
+end
+
+function SmartRez:SetCraftSalvageRequireProfessionOpen(professionKey, requireProfessionOpen, skipRefresh)
+	local selection = self:GetCraftSalvageSelection(professionKey)
+	if not selection then
+		return
+	end
+
+	selection.requireProfessionOpen = requireProfessionOpen == true
+	self:SetCraftSalvageSelection(professionKey, selection, skipRefresh)
 end
 
 function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
@@ -584,6 +603,8 @@ function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
 	end
 
 	local registeredRecipe = self:FindCraftSalvageRecipeByRecipeID(currentState.recipeID, professionKey)
+	local previousSelection = self:GetCraftSalvageSelection(professionKey)
+	local requireProfessionOpen = not (previousSelection and previousSelection.requireProfessionOpen == false)
 	local resolvedDetails = getResolvedRecipeDetailsByID(
 		profession.professionID,
 		currentState.recipeID,
@@ -597,6 +618,7 @@ function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
 		recipeID = currentState.recipeID,
 		requiredProfession = profession.professionID,
 		openTradeSkillID = profession.professionID,
+		requireProfessionOpen = requireProfessionOpen,
 		requiredStack = resolvedDetails.requiredStack,
 		salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs,
 		reagentSlots = resolvedDetails.reagentSlots,
@@ -606,6 +628,7 @@ function SmartRez:LoadCraftSalvageSelectionFromCurrentRecipe(professionKey)
 	}
 
 	selection.recipeKey = registeredRecipe and registeredRecipe.key or nil
+	selection.requireProfessionOpen = requireProfessionOpen
 	selection.label = resolvedDetails.label or selection.label
 	selection.recipeID = currentState.recipeID
 	selection.requiredStack = resolvedDetails.requiredStack or selection.requiredStack or 1
