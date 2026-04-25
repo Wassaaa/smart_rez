@@ -8,16 +8,18 @@ local RESET_ICON = "Interface\\Buttons\\UI-GroupLoot-Pass-Up"
 local POPUP_ICON = "Interface\\Buttons\\UI-Panel-BiggerButton-Up"
 local CONFIG_ICON = "Interface\\GossipFrame\\BinderGossipIcon"
 
-local bagValueDisplayState = {
-	lastDisplayedTotal = nil,
-	lastDelta = 0,
-	baselineTotal = nil,
-	baselineTime = nil,
-}
 local bagValuePopupFrame
 local bagValuePopupSnapshot
 local bagValueRateRefreshers = {}
 local bagValueRateTicker
+local bagValueSession = {
+	activeDisplays = 0,
+	baselineTotal = nil,
+	elapsedSeconds = 0,
+	lastDisplayedTotal = nil,
+	lastDelta = 0,
+	resumedAt = nil,
+}
 
 local function colorMoneyText(text)
 	text = tostring(text or "")
@@ -35,27 +37,81 @@ local function formatBagValueDelta(value)
 	return UI.Colorize(value > 0 and "7EE787" or "FF7B72", colorMoneyText(UI.FormatMoneyDelta(value)))
 end
 
-local function getNow()
+local function getSessionNow()
 	if GetTimePreciseSec then
 		return GetTimePreciseSec()
 	end
 	return GetTime()
 end
 
-local function resetBagValueRate(snapshot)
+local function getBagValueSessionElapsed()
+	local elapsed = bagValueSession.elapsedSeconds or 0
+	if bagValueSession.resumedAt then
+		elapsed = elapsed + math.max(0, getSessionNow() - bagValueSession.resumedAt)
+	end
+	return elapsed
+end
+
+local function resetBagValueSession(snapshot)
 	snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
-	bagValueDisplayState.baselineTotal = snapshot.totalSelectedValue or 0
-	bagValueDisplayState.baselineTime = getNow()
-	bagValueDisplayState.lastDisplayedTotal = snapshot.totalSelectedValue or 0
-	bagValueDisplayState.lastDelta = 0
+	local total = snapshot and snapshot.totalSelectedValue or 0
+	bagValueSession.baselineTotal = total
+	bagValueSession.elapsedSeconds = 0
+	bagValueSession.lastDisplayedTotal = total
+	bagValueSession.lastDelta = 0
+	bagValueSession.resumedAt = bagValueSession.activeDisplays > 0 and getSessionNow() or nil
+	return bagValueSession
+end
+
+local function clearBagValueSession()
+	bagValueSession.baselineTotal = nil
+	bagValueSession.elapsedSeconds = 0
+	bagValueSession.lastDisplayedTotal = nil
+	bagValueSession.lastDelta = 0
+	bagValueSession.resumedAt = nil
+end
+
+local function ensureBagValueSession(snapshot)
+	if bagValueSession.baselineTotal == nil then
+		return resetBagValueSession(snapshot)
+	end
+
+	return bagValueSession
+end
+
+local function resumeBagValueSession(snapshot)
+	ensureBagValueSession(snapshot)
+	bagValueSession.activeDisplays = (bagValueSession.activeDisplays or 0) + 1
+	if not bagValueSession.resumedAt then
+		bagValueSession.resumedAt = getSessionNow()
+	end
+	return bagValueSession
+end
+
+local function pauseBagValueSession()
+	bagValueSession.activeDisplays = math.max(0, (bagValueSession.activeDisplays or 0) - 1)
+	if bagValueSession.activeDisplays == 0 then
+		clearBagValueSession()
+	end
+end
+
+local function updateBagValueSessionTotal(snapshot)
+	local session = ensureBagValueSession(snapshot)
+	local total = snapshot and snapshot.totalSelectedValue or 0
+	local delta = total - (session.lastDisplayedTotal or total)
+	if delta ~= 0 then
+		session.lastDelta = delta
+	end
+	session.lastDisplayedTotal = total
+	return session
 end
 
 local function getBagValueElapsedText()
-	if not bagValueDisplayState.baselineTime then
+	if bagValueSession.baselineTotal == nil then
 		return UI.Colorize("7D8590", "0s")
 	end
 
-	local elapsed = math.max(0, math.floor(getNow() - bagValueDisplayState.baselineTime))
+	local elapsed = math.max(0, math.floor(getBagValueSessionElapsed()))
 	if elapsed >= 3600 then
 		return UI.Colorize("7D8590", string.format("%dh %02dm", math.floor(elapsed / 3600), math.floor((elapsed % 3600) / 60)))
 	elseif elapsed >= 60 then
@@ -67,12 +123,9 @@ end
 
 local function getBagValuePerHourText(snapshot)
 	snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
-	if not bagValueDisplayState.baselineTotal or not bagValueDisplayState.baselineTime then
-		resetBagValueRate(snapshot)
-	end
-
-	local elapsed = math.max(1, getNow() - (bagValueDisplayState.baselineTime or getNow()))
-	local delta = (snapshot.totalSelectedValue or 0) - (bagValueDisplayState.baselineTotal or 0)
+	local session = ensureBagValueSession(snapshot)
+	local elapsed = math.max(1, getBagValueSessionElapsed())
+	local delta = (snapshot.totalSelectedValue or 0) - (session.baselineTotal or 0)
 	local perHour = math.floor(delta * 3600 / elapsed)
 	local color = perHour >= 0 and "7EE787" or "FF7B72"
 	return UI.Colorize(color, colorMoneyText(UI.FormatMoneyDelta(perHour)) .. "/h")
@@ -147,14 +200,24 @@ function UI.RenderBagValueDisplay(parent, snapshotRef, config)
 	config = config or {}
 	local snapshot = snapshotRef()
 	local group = UI.CreateCard(parent, "Auctionable Bag Value")
-	local displayedTotal = snapshot.totalSelectedValue or 0
+	local displayToken = {
+		active = true,
+	}
+	resumeBagValueSession(snapshot)
+	local session = updateBagValueSessionTotal(snapshot)
 
-	if bagValueDisplayState.lastDisplayedTotal == nil then
-		bagValueDisplayState.lastDisplayedTotal = displayedTotal
+	local function deactivateDisplay()
+		if not displayToken.active then
+			return
+		end
+
+		displayToken.active = false
+		pauseBagValueSession()
 	end
-	if not bagValueDisplayState.baselineTotal or not bagValueDisplayState.baselineTime then
-		resetBagValueRate(snapshot)
-	end
+
+	group:SetCallback("OnRelease", function()
+		deactivateDisplay()
+	end)
 
 	local rateRow = AceGUI:Create("SimpleGroup")
 	rateRow:SetFullWidth(true)
@@ -198,7 +261,7 @@ function UI.RenderBagValueDisplay(parent, snapshotRef, config)
 		tooltip = "Reset value timer",
 		tooltipNote = "Starts a fresh gold/hour baseline from the current total.",
 		onClick = function()
-			resetBagValueRate(snapshotRef())
+			resetBagValueSession(snapshotRef())
 			if refreshTotalLabels then
 				refreshTotalLabels()
 			else
@@ -249,7 +312,7 @@ function UI.RenderBagValueDisplay(parent, snapshotRef, config)
 	---@type AceGUILabel
 	local deltaLabel = AceGUI:Create("Label")
 	deltaLabel:SetFullWidth(true)
-	deltaLabel:SetText(formatBagValueDelta(bagValueDisplayState.lastDelta or 0))
+	deltaLabel:SetText(formatBagValueDelta(session.lastDelta or 0))
 	deltaLabel:SetJustifyH("CENTER")
 	deltaLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
 	group:AddChild(deltaLabel)
@@ -261,21 +324,22 @@ function UI.RenderBagValueDisplay(parent, snapshotRef, config)
 	group:AddChild(deltaSpacer)
 
 	refreshTotalLabels = function()
-		local current = snapshotRef()
-		local currentTotal = current.totalSelectedValue or 0
-		local delta = currentTotal - (bagValueDisplayState.lastDisplayedTotal or currentTotal)
-		if delta ~= 0 then
-			bagValueDisplayState.lastDelta = delta
+		if not displayToken.active or not group:IsShown() then
+			deactivateDisplay()
+			return
 		end
+
+		local current = snapshotRef()
+		local currentSession = updateBagValueSessionTotal(current)
 		totalLabel:SetText(colorMoneyText(current.totalSelectedValueText))
-		deltaLabel:SetText(formatBagValueDelta(bagValueDisplayState.lastDelta or 0))
+		deltaLabel:SetText(formatBagValueDelta(currentSession.lastDelta or 0))
 		timerLabel:SetText(getBagValueElapsedText())
 		rateLabel:SetText(getBagValuePerHourText(current))
-		bagValueDisplayState.lastDisplayedTotal = currentTotal
 	end
 
 	registerBagValueRateRefresher(function()
-		if not group:IsShown() then
+		if not displayToken.active or not group:IsShown() then
+			deactivateDisplay()
 			return false
 		end
 
@@ -327,15 +391,17 @@ end
 function SmartRez:ShowBagValuePopup()
 	---@type SmartRezBagValueSnapshot
 	bagValuePopupSnapshot = self:BuildBagValueSnapshot()
-	resetBagValueRate(bagValuePopupSnapshot)
+	ensureBagValueSession(bagValuePopupSnapshot)
 
 	if not bagValuePopupFrame then
 		---@type SmartRezBagValuePopupWindow
 		bagValuePopupFrame = AceGUI:Create("Window")
+		bagValuePopupFrame:SetStatusTable(UI.GetWindowStatus("bagValuePopup", {
+			width = 430,
+			height = 240,
+		}))
 		bagValuePopupFrame:SetTitle("Smart Rez Bag Value")
 		bagValuePopupFrame:SetStatusText("")
-		bagValuePopupFrame:SetWidth(430)
-		bagValuePopupFrame:SetHeight(240)
 		bagValuePopupFrame:EnableResize(false)
 		bagValuePopupFrame:SetLayout("List")
 		bagValuePopupFrame.frame:SetFrameStrata("DIALOG")

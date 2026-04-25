@@ -217,10 +217,12 @@ local function createAutomationConfigWindow()
 
 	---@type SmartRezAutomationWindow
 	automationConfigFrame = AceGUI:Create("Window")
+	automationConfigFrame:SetStatusTable(UI.GetWindowStatus("automationConfig", {
+		width = WINDOW_WIDTH,
+		height = WINDOW_HEIGHT,
+	}))
 	automationConfigFrame:SetTitle(APP_NAME .. " Setup")
 	automationConfigFrame:SetStatusText("")
-	automationConfigFrame:SetWidth(WINDOW_WIDTH)
-	automationConfigFrame:SetHeight(WINDOW_HEIGHT)
 	automationConfigFrame:EnableResize(false)
 	automationConfigFrame:SetLayout("Fill")
 	automationConfigFrame.frame:SetFrameStrata("DIALOG")

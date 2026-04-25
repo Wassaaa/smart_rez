@@ -41,6 +41,9 @@ SmartRez:RegisterCraftRecipeAction({
 	openTradeSkillID = function()
 		return getShardCraftConfigValue("openTradeSkillID")
 	end,
+	requireProfessionOpen = function()
+		return getShardCraftConfigValue("requireProfessionOpen") ~= false
+	end,
 	useDefaultReagents = function()
 		return getShardCraftConfigValue("useDefaultReagents")
 	end,

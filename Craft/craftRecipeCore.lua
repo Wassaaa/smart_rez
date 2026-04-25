@@ -181,13 +181,18 @@ function SmartRez:RegisterCraftRecipeAction(config)
 		local orderID = resolveConfigValue(config, "orderID")
 		local applyConcentration = resolveConfigValue(config, "applyConcentration")
 		local requiredProfession = resolveConfigValue(config, "requiredProfession")
+		local requireProfessionOpen = resolveConfigValue(config, "requireProfessionOpen") ~= false
 		local useDefaultReagents = resolveConfigValue(config, "useDefaultReagents")
 
-		if not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
+		if requireProfessionOpen and not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
 			return
 		end
 
-		SmartRez:OpenCraftRecipeByID(actionController, recipeID)
+		if requireProfessionOpen then
+			SmartRez:OpenCraftRecipeByID(actionController, recipeID)
+		end
+
+		actionController.expectedSpellID = recipeID
 
 		if _C_GetRecipeInfo then
 			local recipeInfo = _C_GetRecipeInfo(recipeID)
@@ -198,12 +203,13 @@ function SmartRez:RegisterCraftRecipeAction(config)
 				"learned", recipeInfo and tostring(recipeInfo.learned) or "nil",
 				"disabled", recipeInfo and tostring(recipeInfo.disabled) or "nil"
 			)
-			if not recipeInfo or not recipeInfo.learned or recipeInfo.disabled then
+			if recipeInfo and (not recipeInfo.learned or recipeInfo.disabled) then
 				debugPrint(config, "stopping on recipe info gate")
 				return
+			elseif not recipeInfo and requireProfessionOpen then
+				debugPrint(config, "stopping on missing recipe info")
+				return
 			end
-
-			actionController.expectedSpellID = recipeID
 		end
 
 		local target = SmartRez:GetCraftRecipeTarget(config.key)
@@ -214,7 +220,7 @@ function SmartRez:RegisterCraftRecipeAction(config)
 			return
 		end
 
-		debugPrint(config, "craft target", "casts", target.numCasts, "available", target.availableCasts, "defaultReagents", tostring(useDefaultReagents))
+		debugPrint(config, "craft target", "casts", target.numCasts, "available", target.availableCasts, "defaultReagents", tostring(useDefaultReagents), "requireProfessionOpen", tostring(requireProfessionOpen))
 
 		if target.craftingReagents then
 			for index, reagent in ipairs(target.craftingReagents) do

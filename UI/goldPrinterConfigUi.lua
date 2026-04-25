@@ -141,6 +141,18 @@ local function renderRecipeCraftStepControls(stepGroup, stepIndex, step)
 	end)
 	stepGroup:AddChild(recipeButton)
 
+	if step.recipeConfig then
+		local requireProfessionOpen = AceGUI:Create("CheckBox")
+		requireProfessionOpen:SetLabel("Require profession window open")
+		requireProfessionOpen:SetValue(step.recipeConfig.requireProfessionOpen ~= false)
+		requireProfessionOpen:SetCallback("OnValueChanged", function(_, _, value)
+			SmartRez:SetGoldPrinterRecipeCraftRequireProfessionOpen(stepIndex, value == true, true)
+		end)
+		stepGroup:AddChild(requireProfessionOpen)
+
+		UI.AddLabel(stepGroup, "Turn this off only for recipes you have verified can craft directly by recipe ID without the profession window/backend being opened first.", "7D8590")
+	end
+
 	if step.recipeConfig and (step.recipeConfig.unsupportedRequiredSlot or false) then
 		UI.AddLabel(stepGroup, "This recipe still has a required non-item reagent slot that Smart Rez cannot drive yet.", "FFB86C")
 	end

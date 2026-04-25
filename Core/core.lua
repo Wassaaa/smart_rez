@@ -64,12 +64,23 @@ SmartRez.dbDefaults = {
 			y = -80,
 		},
 	},
+	uiWindows = {
+		automationConfig = {
+			width = 680,
+			height = 600,
+		},
+		bagValuePopup = {
+			width = 430,
+			height = 240,
+		},
+	},
 	recipeCrafts = {
 		shardcraft = {
 			label = "Shard Craft",
 			recipeID = nil,
 			requiredProfession = nil,
 			openTradeSkillID = nil,
+			requireProfessionOpen = true,
 			useDefaultReagents = false,
 			debug = false,
 			reagents = {},
@@ -454,6 +465,10 @@ function SmartRez:HydrateRecipeCraftConfig(recipeConfig)
 		return recipeConfig
 	end
 
+	if recipeConfig.requireProfessionOpen == nil then
+		recipeConfig.requireProfessionOpen = true
+	end
+
 	local recipeID = recipeConfig.recipeID
 	local professionID = recipeConfig.requiredProfession or recipeConfig.openTradeSkillID
 	local recipeSchematic = C_TradeSkillUI.GetRecipeSchematic and C_TradeSkillUI.GetRecipeSchematic(recipeID, false) or nil
@@ -661,6 +676,7 @@ function SmartRez:UpdateCurrentProfessionState()
 		recipeID = recipeInfo.recipeID,
 		requiredProfession = professionInfo.professionID,
 		openTradeSkillID = professionInfo.professionID,
+		requireProfessionOpen = true,
 		reagents = reagents,
 		reagentSlots = reagentSlots,
 		outputQuantityMin = recipeSchematic and recipeSchematic.quantityMin or 1,
@@ -744,6 +760,7 @@ function SmartRez:LoadRecipeCraftFromSelection(configKey)
 		recipeID = currentState.recipeID,
 		requiredProfession = currentState.requiredProfession,
 		openTradeSkillID = currentState.openTradeSkillID,
+		requireProfessionOpen = true,
 		useDefaultReagents = false,
 		debug = false,
 		reagents = copyTable(currentState.reagents or {}),

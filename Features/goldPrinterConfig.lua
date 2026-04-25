@@ -8,6 +8,7 @@ local DEFAULT_GOLD_PRINTER_CRAFT_RECIPE = {
 	recipeID = 1229864,
 	requiredProfession = 202,
 	openTradeSkillID = 202,
+	requireProfessionOpen = true,
 	useDefaultReagents = false,
 	debug = false,
 	reagentChoices = {
@@ -190,6 +191,9 @@ local function normalizeRoutineStep(step)
 	if stepType == "recipeCraft" then
 		normalized.recipeConfig = copyTable(step.recipeConfig)
 		if normalized.recipeConfig then
+			if normalized.recipeConfig.requireProfessionOpen == nil then
+				normalized.recipeConfig.requireProfessionOpen = true
+			end
 			SmartRez:HydrateRecipeCraftConfig(normalized.recipeConfig)
 			SmartRez:RefreshRecipeCraftResolvedConfig(normalized.recipeConfig)
 		end
@@ -582,11 +586,13 @@ function SmartRez:CaptureGoldPrinterRecipeStep(stepIndex)
 		return false, "Select a recipe in the profession window first."
 	end
 
+	local requireProfessionOpen = not (step.recipeConfig and step.recipeConfig.requireProfessionOpen == false)
 	step.recipeConfig = {
 		label = currentState.label,
 		recipeID = currentState.recipeID,
 		requiredProfession = currentState.requiredProfession,
 		openTradeSkillID = currentState.openTradeSkillID,
+		requireProfessionOpen = requireProfessionOpen,
 		useDefaultReagents = false,
 		debug = false,
 		reagents = copyTable(currentState.reagents or {}),
@@ -666,6 +672,20 @@ function SmartRez:SetGoldPrinterRecipeCraftReagentChoice(stepIndex, dataSlotInde
 
 	SmartRez:RefreshRecipeCraftResolvedConfig(step.recipeConfig)
 	SmartRez:MarkCraftRecipeCacheDirty()
+	if not skipRefresh then
+		refreshViews()
+	end
+end
+
+function SmartRez:SetGoldPrinterRecipeCraftRequireProfessionOpen(stepIndex, requireProfessionOpen, skipRefresh)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step or step.type ~= "recipeCraft" or type(step.recipeConfig) ~= "table" then
+		return
+	end
+
+	step.recipeConfig.requireProfessionOpen = requireProfessionOpen == true
+	self:MarkCraftRecipeCacheDirty()
 	if not skipRefresh then
 		refreshViews()
 	end

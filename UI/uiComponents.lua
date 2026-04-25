@@ -130,6 +130,7 @@ function UI.CreateIconButton(parent, config)
 	local frame = button.frame
 	if frame and (config.texture or config.atlas) then
 		button.iconTexture = button.iconTexture or frame:CreateTexture(nil, "OVERLAY")
+		button.iconTexture:ClearAllPoints()
 		button.iconTexture:SetSize(iconSize, iconSize)
 		button.iconTexture:SetPoint("CENTER", frame, "CENTER", 0, 0)
 		if config.atlas and button.iconTexture.SetAtlas then
@@ -137,9 +138,37 @@ function UI.CreateIconButton(parent, config)
 		else
 			button.iconTexture:SetTexture(config.texture)
 		end
+		button.iconTexture:Show()
+		button:SetCallback("OnRelease", function(widget)
+			if widget.iconTexture then
+				widget.iconTexture:SetTexture(nil)
+				widget.iconTexture:Hide()
+			end
+		end)
 	end
 
 	return button
+end
+
+function UI.GetWindowStatus(windowKey, defaults)
+	SmartRez:EnsureConfig()
+	if type(SmartRez.db.uiWindows) ~= "table" then
+		SmartRez.db.uiWindows = {}
+	end
+
+	local status = SmartRez.db.uiWindows[windowKey]
+	if type(status) ~= "table" then
+		status = {}
+		SmartRez.db.uiWindows[windowKey] = status
+	end
+
+	for key, value in pairs(defaults or {}) do
+		if status[key] == nil then
+			status[key] = value
+		end
+	end
+
+	return status
 end
 
 local function getCursorItemID()
