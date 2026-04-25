@@ -14,6 +14,7 @@ local CloseLoot = CloseLoot
 local UIErrorsFrame = UIErrorsFrame
 
 local DISENCHANT_SPELL_ID = 13262
+local LOOT_CLOSED_FALLBACK_SECONDS = 0.75
 ---@class SmartRezDisenchantSlotState
 ---@field bag integer
 ---@field slot integer
@@ -34,6 +35,7 @@ local DE = {
   itemVerified = false,
   verificationError = nil,
   itemDisenchantability = {},
+  sessionToken = 0,
 }
 
 DE.HiddenTooltip = CreateFrame("GameTooltip", "SmartRezDisenchantHiddenTooltip", UIParent, "GameTooltipTemplate")
@@ -92,6 +94,23 @@ local function debugDisenchant(message, ...)
   print("SmartRez DE: " .. message)
 end
 
+local function getStateText()
+  return string.format(
+    "casting=%s success=%s looting=%s waitingMaterials=%s clicked=%s slot=%s token=%d",
+    tostring(DE.disenchantCasting),
+    tostring(DE.disenchantCastSuccess),
+    tostring(DE.lootingInProgress),
+    tostring(DE.materialsWaiting),
+    tostring(DE.buttonClicked),
+    tostring(DE.clickedBagSlot or "nil"),
+    DE.sessionToken or 0
+  )
+end
+
+local function debugDisenchantState(reason)
+  debugDisenchant("%s %s", reason, getStateText())
+end
+
 local function scanTooltipForDisenchantability(itemID)
   if not itemID then
     return false
@@ -134,6 +153,7 @@ function DE:ResetTrackedSlots()
 end
 
 function DE:ResetSession()
+  self.sessionToken = (self.sessionToken or 0) + 1
   self.buttonClicked = false
   self.clickedBagSlot = nil
   self.disenchantCasting = false
@@ -142,6 +162,7 @@ function DE:ResetSession()
   self.materialsWaiting = false
   self.defaultAutoLootDisabled = false
   self:ResetTrackedSlots()
+  debugDisenchantState("reset session")
 end
 
 function DE:RegisterDisenchantingEvents()
@@ -368,6 +389,8 @@ function DE:RefreshButtons()
 end
 
 function DE:FinishSuccessfulDisenchant()
+  self.sessionToken = (self.sessionToken or 0) + 1
+  debugDisenchantState("finish success")
   self.lootingInProgress = false
   self.buttonClicked = false
   self.clickedBagSlot = nil
@@ -377,18 +400,43 @@ function DE:FinishSuccessfulDisenchant()
 end
 
 function DE:HandleFailedDisenchant()
+  debugDisenchantState("handle failed")
   self:UnregisterDisenchantingEvents()
   self:ResetSession()
   self:RefreshButtons()
 end
 
+function DE:QueueLootClosedFallback()
+  if not (self.lootingInProgress and self.disenchantCastSuccess and not self.materialsWaiting) then
+    return
+  end
+
+  local token = self.sessionToken or 0
+  debugDisenchant("loot closed fallback queued %.2fs %s", LOOT_CLOSED_FALLBACK_SECONDS, getStateText())
+  C_Timer.After(LOOT_CLOSED_FALLBACK_SECONDS, function()
+    if token ~= (DE.sessionToken or 0) then
+      debugDisenchant("loot closed fallback ignored stale token=%d current=%d", token, DE.sessionToken or 0)
+      return
+    end
+
+    if DE.lootingInProgress and DE.disenchantCastSuccess and not DE.materialsWaiting then
+      debugDisenchantState("loot closed fallback finish")
+      DE:FinishSuccessfulDisenchant()
+    else
+      debugDisenchantState("loot closed fallback ignored state")
+    end
+  end)
+end
+
 function DE:QuickAutoLoot()
   if self.lootingInProgress then
+    debugDisenchantState("quick loot skipped already looting")
     return
   end
 
   self.lootingInProgress = true
   self.materialsWaiting = true
+  debugDisenchantState("quick loot start")
   self:UpdateButtons(true, self.HotkeyButton:GetAttribute("macrotext1"))
 
   local lootItems = GetNumLootItems()
@@ -431,8 +479,10 @@ function DE.Events:UNIT_SPELLCAST_START(_, _, _, spellID)
 
   DE.MainButton:Disable()
   DE.HotkeyButton:Disable()
+  DE.sessionToken = (DE.sessionToken or 0) + 1
   DE.disenchantCasting = true
   DE.disenchantCastSuccess = false
+  debugDisenchantState("spell start")
 
   if DE.buttonClicked and DE.clickedBagSlot and DE.trackedSlots[DE.clickedBagSlot] then
     DE.trackedSlots[DE.clickedBagSlot].isBeingDisenchanted = true
@@ -448,6 +498,7 @@ function DE.Events:UNIT_SPELLCAST_SUCCEEDED(_, _, _, spellID)
 
   DE.disenchantCastSuccess = true
   DE.disenchantCasting = false
+  debugDisenchantState("spell succeeded")
 
   if DE.buttonClicked and GetCVar("autoLootDefault") == "1" then
     setAutoLootDefault(0)
@@ -457,9 +508,13 @@ end
 
 function DE.Events:UNIT_SPELLCAST_STOP(_, _, _, spellID)
   if spellID ~= DISENCHANT_SPELL_ID or DE.disenchantCastSuccess then
+    if spellID == DISENCHANT_SPELL_ID then
+      debugDisenchantState("spell stop ignored after success")
+    end
     return
   end
 
+  debugDisenchantState("spell stop failed")
   DE:HandleFailedDisenchant()
 end
 
@@ -467,6 +522,7 @@ function DE.Events:ITEM_LOCKED(_, bag, slot)
   local slotState = DE.trackedSlots[getBagSlotKey(bag, slot)]
   if slotState then
     slotState.isLocked = true
+    debugDisenchant("item locked bag=%s slot=%s %s", tostring(bag), tostring(slot), getStateText())
   end
 end
 
@@ -474,24 +530,29 @@ function DE.Events:ITEM_UNLOCKED(_, bag, slot)
   local slotState = DE.trackedSlots[getBagSlotKey(bag, slot)]
   if slotState then
     slotState.isLocked = false
+    debugDisenchant("item unlocked bag=%s slot=%s %s", tostring(bag), tostring(slot), getStateText())
   end
 end
 
 function DE.Events:ITEM_PUSH()
+  debugDisenchantState("item push")
   if DE.lootingInProgress and not DE.materialsWaiting then
     DE:FinishSuccessfulDisenchant()
   end
 end
 
 function DE.Events:LOOT_READY()
+  debugDisenchantState("loot ready")
   DE:QuickAutoLoot()
 end
 
 function DE.Events:LOOT_OPENED()
+  debugDisenchantState("loot opened")
   DE:QuickAutoLoot()
 end
 
 function DE.Events:LOOT_CLOSED()
+  debugDisenchantState("loot closed")
   if DE.lootingInProgress and DE.materialsWaiting then
     DE.materialsWaiting = false
 
@@ -499,6 +560,8 @@ function DE.Events:LOOT_CLOSED()
       setAutoLootDefault(1)
       DE.defaultAutoLootDisabled = false
     end
+
+    DE:QueueLootClosedFallback()
   end
 end
 
@@ -670,6 +733,10 @@ end
 
 function SmartRez:IsDisenchantLocked()
   return DE.disenchantCasting or DE.disenchantCastSuccess or DE.lootingInProgress
+end
+
+function SmartRez:GetDisenchantDebugStateText()
+  return getStateText()
 end
 
 function SmartRez:GetDisenchantTarget()

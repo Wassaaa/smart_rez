@@ -404,9 +404,10 @@ function UI.RenderIconMultiPicker(parent, config)
 		summary = UI.AddLabel(group, config.summaryText)
 	end
 
-	local selectedSet = config.getSelectedSet()
+	local selectedSet = config.getSelectedSet() or {}
+	local displayItemIDs = UI.MergeAvailableAndSelectedItemIDs(config.availableItemIDs, selectedSet)
 	local selectedCount = UI.GetItemSetCount(selectedSet)
-	local useMidnightQualityIcons = shouldUseMidnightQualityIcons(config.availableItemIDs)
+	local useMidnightQualityIcons = shouldUseMidnightQualityIcons(displayItemIDs)
 
 	local statusLabel = AceGUI:Create("Label")
 	statusLabel:SetFullWidth(true)
@@ -439,12 +440,12 @@ function UI.RenderIconMultiPicker(parent, config)
 	iconGrid:SetLayout("Flow")
 	group:AddChild(iconGrid)
 
-	if #(config.availableItemIDs or {}) == 0 then
+	if #displayItemIDs == 0 then
 		UI.AddLabel(iconGrid, config.emptyText or "No API items are available for this filter yet.")
 		return
 	end
 
-	for _, itemID in ipairs(getSortedAvailableItemIDs(config.availableItemIDs)) do
+	for _, itemID in ipairs(getSortedAvailableItemIDs(displayItemIDs)) do
 		local _, itemIcon, reagentQuality = UI.GetItemVisualInfo(itemID)
 		local itemCount = config.getItemCount and config.getItemCount(itemID) or SmartRez:GetBagItemCount(itemID)
 		local isExplicitlySelected = selectedSet[itemID] == true

@@ -13,13 +13,18 @@ local bagValuePopupSnapshot
 local bagValueRateRefreshers = {}
 local bagValueRateTicker
 local bagValueSession = {
-	activeDisplays = 0,
 	baselineTotal = nil,
 	elapsedSeconds = 0,
 	lastDisplayedTotal = nil,
 	lastDelta = 0,
 	resumedAt = nil,
 }
+
+local function debugBagValue(format, ...)
+	if SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled() then
+		print(string.format("SmartRez Value: " .. format, ...))
+	end
+end
 
 local function colorMoneyText(text)
 	text = tostring(text or "")
@@ -55,15 +60,17 @@ end
 local function resetBagValueSession(snapshot)
 	snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
 	local total = snapshot and snapshot.totalSelectedValue or 0
+	debugBagValue("session baseline reset total=%d", total)
 	bagValueSession.baselineTotal = total
 	bagValueSession.elapsedSeconds = 0
 	bagValueSession.lastDisplayedTotal = total
 	bagValueSession.lastDelta = 0
-	bagValueSession.resumedAt = bagValueSession.activeDisplays > 0 and getSessionNow() or nil
+	bagValueSession.resumedAt = getSessionNow()
 	return bagValueSession
 end
 
 local function clearBagValueSession()
+	debugBagValue("session reset")
 	bagValueSession.baselineTotal = nil
 	bagValueSession.elapsedSeconds = 0
 	bagValueSession.lastDisplayedTotal = nil
@@ -81,17 +88,39 @@ end
 
 local function resumeBagValueSession(snapshot)
 	ensureBagValueSession(snapshot)
-	bagValueSession.activeDisplays = (bagValueSession.activeDisplays or 0) + 1
 	if not bagValueSession.resumedAt then
 		bagValueSession.resumedAt = getSessionNow()
 	end
 	return bagValueSession
 end
 
-local function pauseBagValueSession()
-	bagValueSession.activeDisplays = math.max(0, (bagValueSession.activeDisplays or 0) - 1)
-	if bagValueSession.activeDisplays == 0 then
-		clearBagValueSession()
+local function isBagValuePopupShown()
+	return bagValuePopupFrame and bagValuePopupFrame.IsShown and bagValuePopupFrame:IsShown()
+end
+
+local function isBagValueSetupShown()
+	return SmartRez.IsAutomationConfigWindowShown and SmartRez:IsAutomationConfigWindowShown()
+end
+
+local function maybeClearBagValueSession()
+	if isBagValuePopupShown() or isBagValueSetupShown() then
+		debugBagValue(
+			"session kept popup=%s setup=%s",
+			tostring(isBagValuePopupShown() == true),
+			tostring(isBagValueSetupShown() == true)
+		)
+		return
+	end
+
+	clearBagValueSession()
+end
+
+function SmartRez:HandleBagValueSurfaceClosed()
+	debugBagValue("surface close check queued")
+	if C_Timer and C_Timer.After then
+		C_Timer.After(0, maybeClearBagValueSession)
+	else
+		maybeClearBagValueSession()
 	end
 end
 
@@ -212,7 +241,6 @@ function UI.RenderBagValueDisplay(parent, snapshotRef, config)
 		end
 
 		displayToken.active = false
-		pauseBagValueSession()
 	end
 
 	group:SetCallback("OnRelease", function()
@@ -407,6 +435,14 @@ function SmartRez:ShowBagValuePopup()
 		bagValuePopupFrame.frame:SetFrameStrata("DIALOG")
 		bagValuePopupFrame:SetCallback("OnClose", function(widget)
 			widget:Hide()
+			if SmartRez.HandleBagValueSurfaceClosed then
+				SmartRez:HandleBagValueSurfaceClosed()
+			end
+		end)
+		bagValuePopupFrame.frame:HookScript("OnHide", function()
+			if SmartRez.HandleBagValueSurfaceClosed then
+				SmartRez:HandleBagValueSurfaceClosed()
+			end
 		end)
 
 		function bagValuePopupFrame:Refresh(reason)

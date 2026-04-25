@@ -228,7 +228,8 @@ end
 
 local function hasDisenchantWork()
 	local hasTarget = SmartRez:HasDisenchantTarget()
-	debugStateChanged("disenchant", "disenchant", "locked", tostring(SmartRez:IsDisenchantLocked()), "hasTarget", tostring(hasTarget))
+	local lockState = SmartRez.GetDisenchantDebugStateText and SmartRez:GetDisenchantDebugStateText() or "no-state"
+	debugStateChanged("disenchant", "disenchant", "locked", tostring(SmartRez:IsDisenchantLocked()), "hasTarget", tostring(hasTarget), lockState)
 	return hasTarget
 end
 

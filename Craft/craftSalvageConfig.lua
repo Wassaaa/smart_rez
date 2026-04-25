@@ -471,7 +471,7 @@ function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlot
 	end
 end
 
-local function buildAllowedItemSet(allowedItemIDs, customWhitelist)
+local function buildAllowedItemSet(allowedItemIDs, customWhitelist, emptyWhitelistAllowsAll)
 	local allowedItems = {}
 	local hasCustomFilter = next(customWhitelist or {}) ~= nil
 
@@ -481,7 +481,7 @@ local function buildAllowedItemSet(allowedItemIDs, customWhitelist)
 				allowedItems[itemID] = true
 			end
 		end
-	else
+	elseif emptyWhitelistAllowsAll then
 		for _, itemID in ipairs(allowedItemIDs or {}) do
 			allowedItems[itemID] = true
 		end
@@ -492,7 +492,11 @@ end
 
 function SmartRez:GetCraftSalvageAllowedTargetItems(professionKey, contextKey)
 	local selection = self:GetCraftSalvageSelection(professionKey)
-	return buildAllowedItemSet(selection and selection.salvageTargetItemIDs, self:GetCraftSalvageWhitelist(professionKey, contextKey))
+	return buildAllowedItemSet(
+		selection and selection.salvageTargetItemIDs,
+		self:GetCraftSalvageWhitelist(professionKey, contextKey),
+		false
+	)
 end
 
 function SmartRez:GetCraftSalvageReagentSlots(professionKey)
@@ -505,7 +509,7 @@ function SmartRez:GetCraftSalvageAllowedReagentItems(professionKey, dataSlotInde
 
 	for _, reagentSlot in ipairs(reagentSlots) do
 		if reagentSlot.dataSlotIndex == dataSlotIndex then
-			return buildAllowedItemSet(reagentSlot.allowedItemIDs, self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey))
+			return buildAllowedItemSet(reagentSlot.allowedItemIDs, self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey), true)
 		end
 	end
 

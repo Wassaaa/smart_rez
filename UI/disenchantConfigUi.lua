@@ -17,7 +17,7 @@ function UI.RenderDisenchantWhitelist(parent, config)
 		getSummaryText = function()
 			return UI.Colorize("79C0FF", "Whitelist entries: " .. tostring(UI.GetItemSetCount(SmartRez:GetDisenchantWhitelist(contextKey))))
 		end,
-		availableItemIDs = UI.MergeAvailableAndSelectedItemIDs(SmartRez:GetAvailableDisenchantItemIDs(), selectedSet),
+		availableItemIDs = SmartRez:GetAvailableDisenchantItemIDs(),
 		getSelectedSet = function()
 			return SmartRez:GetDisenchantWhitelist(contextKey)
 		end,

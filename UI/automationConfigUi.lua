@@ -228,6 +228,14 @@ local function createAutomationConfigWindow()
 	automationConfigFrame.frame:SetFrameStrata("DIALOG")
 	automationConfigFrame:SetCallback("OnClose", function(widget)
 		widget:Hide()
+		if SmartRez.HandleBagValueSurfaceClosed then
+			SmartRez:HandleBagValueSurfaceClosed()
+		end
+	end)
+	automationConfigFrame.frame:HookScript("OnHide", function()
+		if SmartRez.HandleBagValueSurfaceClosed then
+			SmartRez:HandleBagValueSurfaceClosed()
+		end
 	end)
 	automationConfigFrame.scrollStatuses = {}
 
@@ -277,4 +285,8 @@ function SmartRez:ShowAutomationConfigWindow(selectedGroup)
 	end
 	configWindow:Refresh()
 	configWindow:Show()
+end
+
+function SmartRez:IsAutomationConfigWindowShown()
+	return automationConfigFrame and automationConfigFrame.IsShown and automationConfigFrame:IsShown()
 end

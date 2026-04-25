@@ -14,7 +14,7 @@ local function renderCraftSalvageWhitelistSections(parent, profession, selection
 	local whitelistLabel = selection.label or profession.label
 	UI.RenderIconMultiPicker(parent, {
 		title = (titlePrefix or "") .. "Salvage Targets",
-		helpText = "Items " .. whitelistLabel .. " may salvage. Click icons to build a narrowed target list, or leave it empty.",
+		helpText = "Items " .. whitelistLabel .. " may salvage. Pick the exact targets this whitelist is allowed to use.",
 		summaryText = UI.Colorize("79C0FF", "Whitelist entries: " .. tostring(UI.GetItemSetCount(SmartRez:GetCraftSalvageWhitelist(profession.key, contextKey)))),
 		getSummaryText = function()
 			return UI.Colorize("79C0FF", "Whitelist entries: " .. tostring(UI.GetItemSetCount(SmartRez:GetCraftSalvageWhitelist(profession.key, contextKey))))
@@ -29,7 +29,7 @@ local function renderCraftSalvageWhitelistSections(parent, profession, selection
 		removeItemFunc = function(itemID)
 			SmartRez:RemoveCraftSalvageWhitelistItem(profession.key, itemID, true, contextKey)
 		end,
-		controlHintText = "Click icons to choose allowed salvage targets. Leaving it empty means all recipe targets remain allowed.",
+		controlHintText = "Click icons to choose allowed salvage targets. Leaving it empty means no salvage targets are allowed.",
 	})
 
 	for _, reagentSlot in ipairs(selection.reagentSlots or {}) do
