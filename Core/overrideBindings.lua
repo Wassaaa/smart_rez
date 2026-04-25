@@ -58,10 +58,10 @@ function SmartRez:RegisterManagedFrame(frame)
   table.insert(self.managedFrames, frame)
 end
 
-function SmartRez:RefreshViews()
+function SmartRez:RefreshViews(reason)
   for _, frame in ipairs(self.managedFrames or {}) do
     if frame.Refresh and (not frame.IsShown or frame:IsShown()) then
-      frame:Refresh()
+      frame:Refresh(reason)
     end
   end
 

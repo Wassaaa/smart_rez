@@ -58,21 +58,13 @@ end
 local function formatMoney(value)
 	value = math.max(0, math.floor(tonumber(value) or 0))
 
-	if TSM_API and TSM_API.FormatMoneyString then
-		local ok, formatted = pcall(TSM_API.FormatMoneyString, value)
-		if ok and type(formatted) == "string" and formatted ~= "" then
-			return formatted
-		end
-	end
-
-	if GetMoneyString then
-		return GetMoneyString(value, true)
-	end
-
 	local gold = math.floor(value / 10000)
 	local silver = math.floor((value % 10000) / 100)
-	local copper = value % 100
-	return string.format("%dg %ds %dc", gold, silver, copper)
+	if gold > 0 then
+		return string.format("%dg %ds", gold, silver)
+	end
+
+	return string.format("%ds", silver)
 end
 
 local function getItemString(itemLink, itemID)

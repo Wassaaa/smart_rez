@@ -44,6 +44,17 @@ local AceGUILabel = {}
 ---@param text string?
 function AceGUILabel:SetText(text) end
 
+---@param font string
+---@param height number
+---@param flags? string
+function AceGUILabel:SetFont(font, height, flags) end
+
+---@param justifyH string
+function AceGUILabel:SetJustifyH(justifyH) end
+
+---@param justifyV string
+function AceGUILabel:SetJustifyV(justifyV) end
+
 ---@class AceGUIInteractiveLabel: AceGUILabel
 local AceGUIInteractiveLabel = {}
 

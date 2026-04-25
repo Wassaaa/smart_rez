@@ -12,6 +12,8 @@ function SmartRez:ChatCommand(msg)
 
   if command == "" or command == "config" then
     self:OpenSettingsCategory()
+  elseif command == "value" then
+    self:ShowBagValuePopup()
   elseif command == "setup" or command == "items" then
     self:ShowAutomationConfigWindow()
   elseif command == "proxyui" or proxyUiArg then
@@ -85,6 +87,6 @@ function SmartRez:ChatCommand(msg)
     self:ToggleOverrideBindingPopup()
   else
     print(
-    "Smart Rez commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
+    "Smart Rez commands: /sr, /sr value, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
   end
 end

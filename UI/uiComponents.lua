@@ -83,14 +83,63 @@ end
 function UI.FormatMoney(value)
 	value = math.max(0, math.floor(tonumber(value) or 0))
 
-	if GetMoneyString then
-		return GetMoneyString(value, true)
-	end
-
 	local gold = math.floor(value / 10000)
 	local silver = math.floor((value % 10000) / 100)
-	local copper = value % 100
-	return string.format("%dg %ds %dc", gold, silver, copper)
+	if gold > 0 then
+		return string.format("%dg %ds", gold, silver)
+	end
+
+	return string.format("%ds", silver)
+end
+
+function UI.FormatMoneyDelta(value)
+	value = math.floor(tonumber(value) or 0)
+	local prefix = value >= 0 and "+" or "-"
+	return prefix .. UI.FormatMoney(math.abs(value))
+end
+
+function UI.CreateIconButton(parent, config)
+	config = config or {}
+
+	local button = AceGUI:Create("Button")
+	button:SetWidth(config.width or 32)
+	button:SetText(config.text or "")
+	button:SetCallback("OnClick", function()
+		if config.onClick then
+			config.onClick()
+		end
+	end)
+
+	if config.tooltip then
+		button:SetCallback("OnEnter", function(widget)
+			GameTooltip:SetOwner(widget.frame, "ANCHOR_RIGHT")
+			GameTooltip:AddLine(config.tooltip, 1, 1, 1)
+			if config.tooltipNote then
+				GameTooltip:AddLine(config.tooltipNote, 0.65, 0.78, 1, true)
+			end
+			GameTooltip:Show()
+		end)
+		button:SetCallback("OnLeave", function()
+			GameTooltip:Hide()
+		end)
+	end
+
+	parent:AddChild(button)
+
+	local iconSize = config.iconSize or 16
+	local frame = button.frame
+	if frame and (config.texture or config.atlas) then
+		button.iconTexture = button.iconTexture or frame:CreateTexture(nil, "OVERLAY")
+		button.iconTexture:SetSize(iconSize, iconSize)
+		button.iconTexture:SetPoint("CENTER", frame, "CENTER", 0, 0)
+		if config.atlas and button.iconTexture.SetAtlas then
+			button.iconTexture:SetAtlas(config.atlas)
+		else
+			button.iconTexture:SetTexture(config.texture)
+		end
+	end
+
+	return button
 end
 
 local function getCursorItemID()
@@ -402,6 +451,24 @@ function UI.RenderIconMultiPicker(parent, config)
 				summary:SetText(config.getSummaryText())
 			end
 		end
+		local function updateIconInventoryState()
+			itemCount = config.getItemCount and config.getItemCount(itemID) or SmartRez:GetBagItemCount(itemID)
+			if config.getIconLabel then
+				icon:SetLabel(config.getIconLabel(itemID, itemCount))
+			else
+				icon:SetLabel(UI.Colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount)))
+			end
+			if icon.image and icon.image.SetVertexColor then
+				if itemCount > 0 then
+					icon.image:SetVertexColor(1, 1, 1, 1)
+				else
+					icon.image:SetVertexColor(0.65, 0.65, 0.65, 0.85)
+				end
+			end
+			if summary and config.getSummaryText then
+				summary:SetText(config.getSummaryText())
+			end
+		end
 		icon:SetCallback("OnClick", function()
 			if isExplicitlySelected then
 				config.removeItemFunc(itemID)
@@ -427,6 +494,9 @@ function UI.RenderIconMultiPicker(parent, config)
 		end)
 
 		updateIconSelectionState()
+		if SmartRez.RegisterAutomationConfigInventoryRefresher then
+			SmartRez:RegisterAutomationConfigInventoryRefresher(updateIconInventoryState)
+		end
 
 		if icon.image and icon.image.SetVertexColor then
 			if itemCount > 0 then
@@ -521,6 +591,17 @@ function UI.RenderIconSingleChoiceRow(parent, config)
 		icon:SetCallback("OnLeave", function()
 			GameTooltip:Hide()
 		end)
+		local function updateIconInventoryState()
+			itemCount = config.getItemCount and config.getItemCount(rowItemID) or SmartRez:GetBagItemCount(rowItemID)
+			if config.getIconLabel then
+				icon:SetLabel(config.getIconLabel(rowItemID, itemCount))
+			else
+				icon:SetLabel(UI.Colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount)))
+			end
+		end
+		if SmartRez.RegisterAutomationConfigInventoryRefresher then
+			SmartRez:RegisterAutomationConfigInventoryRefresher(updateIconInventoryState)
+		end
 
 		icons[rowItemID] = {
 			icon = icon,

@@ -820,7 +820,12 @@ function SmartRez:MarkCraftRecipeCacheDirty()
 	self.craftRecipeCacheDirty = true
 end
 
-function SmartRez:QueueRefreshViews()
+function SmartRez:QueueRefreshViews(reason)
+	if reason then
+		self.queuedViewRefreshReasons = self.queuedViewRefreshReasons or {}
+		self.queuedViewRefreshReasons[reason] = true
+	end
+
 	if self.viewRefreshQueued then
 		return
 	end
@@ -828,8 +833,19 @@ function SmartRez:QueueRefreshViews()
 	self.viewRefreshQueued = true
 	C_Timer.After(0, function()
 		self.viewRefreshQueued = false
+		local queuedReasons = self.queuedViewRefreshReasons
+		self.queuedViewRefreshReasons = nil
+		local refreshReason
+		if queuedReasons then
+			if queuedReasons.config or queuedReasons.profession then
+				refreshReason = "config"
+			elseif queuedReasons.inventory then
+				refreshReason = "inventory"
+			end
+		end
+
 		if self.RefreshViews then
-			self:RefreshViews()
+			self:RefreshViews(refreshReason)
 		end
 	end)
 end
@@ -990,7 +1006,7 @@ function SmartRez:HandleInventoryChanged()
 	if self.RefreshDisenchantButton then
 		self:RefreshDisenchantButton()
 	end
-	self:QueueRefreshViews()
+	self:QueueRefreshViews("inventory")
 end
 
 function SmartRez:HandleProfessionsChanged()
@@ -998,7 +1014,7 @@ function SmartRez:HandleProfessionsChanged()
 	self:MarkCraftSalvageCacheDirty()
 	self:MarkCraftRecipeCacheDirty()
 
-	self:QueueRefreshViews()
+	self:QueueRefreshViews("profession")
 end
 
 function SmartRez:OnEnable()
