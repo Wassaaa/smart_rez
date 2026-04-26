@@ -13,417 +13,459 @@ local SALVAGE_ACTIVITY_TIMEOUT_SECONDS = 2
 local SALVAGE_SORT_SETTLE_SECONDS = 1
 
 local function buildCraftingReagents(reagents, numCasts)
-	local craftingReagents = {}
+  local craftingReagents = {}
 
-	for index, reagent in ipairs(reagents or {}) do
-		craftingReagents[index] = {
-			reagent = {
-				itemID = reagent.itemID,
-			},
-			dataSlotIndex = reagent.dataSlotIndex or index,
-			quantity = reagent.quantity * (numCasts or 1),
-		}
-	end
+  for index, reagent in ipairs(reagents or {}) do
+    craftingReagents[index] = {
+      reagent = {
+        itemID = reagent.itemID,
+      },
+      dataSlotIndex = reagent.dataSlotIndex or index,
+      quantity = reagent.quantity * (numCasts or 1),
+    }
+  end
 
-	if #craftingReagents == 0 then
-		return nil
-	end
+  if #craftingReagents == 0 then
+    return nil
+  end
 
-	return craftingReagents
+  return craftingReagents
 end
 
 local function isHigherBagSlotCandidate(bag, slot, existingBag, existingSlot)
-	if bag ~= existingBag then
-		return bag > existingBag
-	end
+  if bag ~= existingBag then
+    return bag > existingBag
+  end
 
-	return slot > existingSlot
+  return slot > existingSlot
 end
 
 function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
-	local selection = self:GetCraftSalvageSelection(professionKey)
-	local reagentPlan = {
-		reagents = {},
-		maxCasts = maxCasts or _huge,
-	}
+  local selection = self:GetCraftSalvageSelection(professionKey)
+  local reagentPlan = {
+    reagents = {},
+    maxCasts = maxCasts or _huge,
+  }
 
-	for _, reagentSlot in ipairs(selection and selection.reagentSlots or {}) do
-		local allowedItems = self:GetCraftSalvageAllowedReagentItems(professionKey, reagentSlot.dataSlotIndex)
-		local bestItemID, bestPossibleCasts = nil, 0
+  for _, reagentSlot in ipairs(selection and selection.reagentSlots or {}) do
+    local allowedItems = self:GetCraftSalvageAllowedReagentItems(professionKey, reagentSlot.dataSlotIndex)
+    local bestItemID, bestPossibleCasts = nil, 0
 
-		for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
-			if allowedItems[itemID] then
-				local itemCount = self:GetCraftingItemCount(itemID)
-				local possibleCasts = reagentSlot.quantityRequired > 0 and _floor(itemCount / reagentSlot.quantityRequired) or 0
+    for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+      if allowedItems[itemID] then
+        local itemCount = self:GetCraftingItemCount(itemID)
+        local possibleCasts = reagentSlot.quantityRequired > 0 and _floor(itemCount / reagentSlot.quantityRequired) or 0
 
-				if possibleCasts > bestPossibleCasts then
-					bestItemID = itemID
-					bestPossibleCasts = possibleCasts
-				end
-			end
-		end
+        if possibleCasts > bestPossibleCasts then
+          bestItemID = itemID
+          bestPossibleCasts = possibleCasts
+        end
+      end
+    end
 
-		if not bestItemID or bestPossibleCasts <= 0 then
-			return nil
-		end
+    if not bestItemID or bestPossibleCasts <= 0 then
+      return nil
+    end
 
-		reagentPlan.maxCasts = math.min(reagentPlan.maxCasts, bestPossibleCasts)
-		reagentPlan.reagents[#reagentPlan.reagents + 1] = {
-			itemID = bestItemID,
-			dataSlotIndex = reagentSlot.dataSlotIndex,
-			quantity = reagentSlot.quantityRequired,
-		}
-	end
+    reagentPlan.maxCasts = math.min(reagentPlan.maxCasts, bestPossibleCasts)
+    reagentPlan.reagents[#reagentPlan.reagents + 1] = {
+      itemID = bestItemID,
+      dataSlotIndex = reagentSlot.dataSlotIndex,
+      quantity = reagentSlot.quantityRequired,
+    }
+  end
 
-	if reagentPlan.maxCasts == _huge then
-		reagentPlan.maxCasts = maxCasts or 0
-	end
+  if reagentPlan.maxCasts == _huge then
+    reagentPlan.maxCasts = maxCasts or 0
+  end
 
-	reagentPlan.craftingReagents = buildCraftingReagents(reagentPlan.reagents, reagentPlan.maxCasts)
-	return reagentPlan
+  reagentPlan.craftingReagents = buildCraftingReagents(reagentPlan.reagents, reagentPlan.maxCasts)
+  return reagentPlan
 end
 
 function SmartRez:RebuildCraftSalvageCache()
-	local cache = {}
-	local activeProfessions = {}
+  local cache = {}
+  local activeProfessions = {}
 
-	for professionKey, professionConfig in pairs(self.craftSalvageProfessions) do
-		local selection = self:GetCraftSalvageSelection(professionKey)
-		if selection and selection.recipeID and selection.requiredStack and self:HasProfession(professionConfig.professionID) then
-			local reagentPlan = self:BuildCraftSalvageReagentPlan(professionKey, _huge)
-			activeProfessions[professionKey] = {
-				selection = selection,
-				allowedTargets = self:GetCraftSalvageAllowedTargetItems(professionKey),
-				reagentPlan = reagentPlan,
-			}
-		end
-	end
+  for professionKey, professionConfig in pairs(self.craftSalvageProfessions) do
+    local selection = self:GetCraftSalvageSelection(professionKey)
+    if selection and selection.recipeID and selection.requiredStack and self:HasProfession(professionConfig.professionID) then
+      local reagentPlan = self:BuildCraftSalvageReagentPlan(professionKey, _huge)
+      activeProfessions[professionKey] = {
+        selection = selection,
+        allowedTargets = self:GetCraftSalvageAllowedTargetItems(professionKey),
+        reagentPlan = reagentPlan,
+      }
+    end
+  end
 
-	self:ForEachCraftingItemSourceSlot(function(bag, slot)
-		local itemInfo = _C_GetContainerItemInfo(bag, slot)
-		if itemInfo then
-			for professionKey, professionState in pairs(activeProfessions) do
-				local selection = professionState.selection
-				local reagentPlan = professionState.reagentPlan
-				local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
-				local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
-				local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or (hasRequiredReagents and 0 or targetCasts)
+  self:ForEachCraftingItemSourceSlot(function(bag, slot)
+    local itemInfo = _C_GetContainerItemInfo(bag, slot)
+    if itemInfo then
+      for professionKey, professionState in pairs(activeProfessions) do
+        local selection = professionState.selection
+        local reagentPlan = professionState.reagentPlan
+        local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
+        local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
+        local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or
+            (hasRequiredReagents and 0 or targetCasts)
 
-				if professionState.allowedTargets[itemInfo.itemID] and availableCasts > 0 then
-					local existingTarget = cache[professionKey]
-					local shouldReplace = existingTarget == nil
+        if professionState.allowedTargets[itemInfo.itemID] and availableCasts > 0 then
+          local existingTarget = cache[professionKey]
+          local shouldReplace = existingTarget == nil
 
-					if not shouldReplace and isHigherBagSlotCandidate(bag, slot, existingTarget.bag, existingTarget.slot) then
-						shouldReplace = true
-					end
+          if not shouldReplace and isHigherBagSlotCandidate(bag, slot, existingTarget.bag, existingTarget.slot) then
+            shouldReplace = true
+          end
 
-					if shouldReplace then
-						cache[professionKey] = {
-							bag = bag,
-							slot = slot,
-							itemInfo = itemInfo,
-							availableCasts = availableCasts,
-						}
-					end
-				end
-			end
-		end
-	end)
+          if shouldReplace then
+            cache[professionKey] = {
+              bag = bag,
+              slot = slot,
+              itemInfo = itemInfo,
+              availableCasts = availableCasts,
+            }
+          end
+        end
+      end
+    end
+  end)
 
-	self.craftSalvageCache = cache
-	self.craftSalvageCacheDirty = false
+  self.craftSalvageCache = cache
+  self.craftSalvageCacheDirty = false
 end
 
 function SmartRez:GetBestCraftSalvageLiveTarget(professionKey)
-	local selection = self:GetCraftSalvageSelection(professionKey)
-	local professionConfig = self.craftSalvageProfessions[professionKey]
-	if not selection or not professionConfig or not selection.recipeID or not selection.requiredStack or not self:HasProfession(professionConfig.professionID) then
-		return nil
-	end
+  local selection = self:GetCraftSalvageSelection(professionKey)
+  local professionConfig = self.craftSalvageProfessions[professionKey]
+  if not selection or not professionConfig or not selection.recipeID or not selection.requiredStack or not self:HasProfession(professionConfig.professionID) then
+    return nil
+  end
 
-	local reagentPlan = self:BuildCraftSalvageReagentPlan(professionKey, _huge)
-	local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
-	local allowedTargets = self:GetCraftSalvageAllowedTargetItems(professionKey)
-	local bestTarget = nil
+  local reagentPlan = self:BuildCraftSalvageReagentPlan(professionKey, _huge)
+  local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
+  local allowedTargets = self:GetCraftSalvageAllowedTargetItems(professionKey)
+  local bestTarget = nil
 
-	self:ForEachCraftingItemSourceSlot(function(bag, slot)
-		local itemInfo = _C_GetContainerItemInfo(bag, slot)
-		if not itemInfo or not allowedTargets[itemInfo.itemID] then
-			return
-		end
+  self:ForEachCraftingItemSourceSlot(function(bag, slot)
+    local itemInfo = _C_GetContainerItemInfo(bag, slot)
+    if not itemInfo or not allowedTargets[itemInfo.itemID] then
+      return
+    end
 
-		local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
-		local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or (hasRequiredReagents and 0 or targetCasts)
-		if availableCasts <= 0 then
-			return
-		end
+    local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
+    local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or
+        (hasRequiredReagents and 0 or targetCasts)
+    if availableCasts <= 0 then
+      return
+    end
 
-		local shouldReplace = bestTarget == nil
-		if not shouldReplace and isHigherBagSlotCandidate(bag, slot, bestTarget.bag, bestTarget.slot) then
-			shouldReplace = true
-		end
+    local shouldReplace = bestTarget == nil
+    if not shouldReplace and isHigherBagSlotCandidate(bag, slot, bestTarget.bag, bestTarget.slot) then
+      shouldReplace = true
+    end
 
-		if shouldReplace then
-			bestTarget = {
-				bag = bag,
-				slot = slot,
-				itemInfo = itemInfo,
-				availableCasts = availableCasts,
-			}
-		end
-	end)
+    if shouldReplace then
+      bestTarget = {
+        bag = bag,
+        slot = slot,
+        itemInfo = itemInfo,
+        availableCasts = availableCasts,
+      }
+    end
+  end)
 
-	return bestTarget
+  return bestTarget
 end
 
 function SmartRez:GetCraftSalvageTarget(professionKey)
-	if self.craftSalvageCacheDirty then
-		self:RebuildCraftSalvageCache()
-	end
+  if self.craftSalvageCacheDirty then
+    self:RebuildCraftSalvageCache()
+  end
 
-	return self.craftSalvageCache[professionKey]
+  return self.craftSalvageCache[professionKey]
 end
 
 function SmartRez:RegisterCraftSalvageProfession(config)
-	local itemLocation = _ItemLocation:CreateEmpty()
-	local lastSortTime = 0
-	local bagSortSettling = false
-	local lastSalvageTargetItemID = nil
+  local itemLocation = _ItemLocation:CreateEmpty()
+  local lastSortTime = 0
+  local bagSortSettling = false
+  local lastSalvageTargetItemID = nil
 
-	self.craftSalvageProfessions[config.key] = config
-	self.craftSalvageActionFrames = self.craftSalvageActionFrames or {}
-	local actionController = self:CreateCraftActionController({
-		key = config.key,
-		label = config.label,
-		debugPrefix = "SmartRez Salvage " .. config.key,
-		startTimeoutSeconds = SALVAGE_START_TIMEOUT_SECONDS,
-		activityTimeoutSeconds = SALVAGE_ACTIVITY_TIMEOUT_SECONDS,
-		activityReason = "salvage activity",
-		activityTimeoutReason = "salvage activity timeout",
-		startTimeoutReason = "craft start timeout",
-		markDirty = function()
-			SmartRez:MarkCraftSalvageCacheDirty()
-		end,
-		registerEvents = function(controller)
-			controller.frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
-			controller.frame:RegisterEvent("BAG_UPDATE_DELAYED")
-			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
-			controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
-			controller.frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-		end,
-	})
-	self.craftSalvageActionFrames[config.key] = actionController
-	local actionFrame = actionController.frame
-	local function tryBeginBagRestack(eventName)
-		if bagSortSettling or not lastSalvageTargetItemID then
-			return false
-		end
+  self.craftSalvageProfessions[config.key] = config
+  self.craftSalvageActionFrames = self.craftSalvageActionFrames or {}
+  local actionController = self:CreateCraftActionController({
+    key = config.key,
+    label = config.label,
+    debugPrefix = "SmartRez Salvage " .. config.key,
+    startTimeoutSeconds = SALVAGE_START_TIMEOUT_SECONDS,
+    activityTimeoutSeconds = SALVAGE_ACTIVITY_TIMEOUT_SECONDS,
+    activityReason = "salvage activity",
+    activityTimeoutReason = "salvage activity timeout",
+    startTimeoutReason = "craft start timeout",
+    markDirty = function()
+      SmartRez:MarkCraftSalvageCacheDirty()
+    end,
+    registerEvents = function(controller)
+      controller.frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
+      controller.frame:RegisterEvent("BAG_UPDATE_DELAYED")
+      controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
+      controller.frame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
+      controller.frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+    end,
+  })
+  self.craftSalvageActionFrames[config.key] = actionController
+  local actionFrame = actionController.frame
+  local function tryBeginBagRestack(eventName)
+    if bagSortSettling or not lastSalvageTargetItemID then
+      return false
+    end
 
-		if not SmartRez.StartPlayerBagItemRestack or not SmartRez:StartPlayerBagItemRestack(lastSalvageTargetItemID) then
-			return false
-		end
+    if not SmartRez.StartPlayerBagItemRestack or not SmartRez:StartPlayerBagItemRestack(lastSalvageTargetItemID) then
+      return false
+    end
 
-		bagSortSettling = true
-		actionController:Debug("restacking item", lastSalvageTargetItemID, "after", eventName or "spell event")
-		if SmartRez.RebuildInventoryCounts then
-			SmartRez:RebuildInventoryCounts()
-		end
-		SmartRez:MarkCraftSalvageCacheDirty()
-		actionController:BeginExternalWait(SALVAGE_SORT_SETTLE_SECONDS, "bag restack settle", "bag restack settle timeout")
-		actionFrame:RegisterEvent("BAG_UPDATE_DELAYED")
-		return true
-	end
+    bagSortSettling = true
+    actionController:Debug("restacking item", lastSalvageTargetItemID, "after", eventName or "spell event")
+    if SmartRez.RebuildInventoryCounts then
+      SmartRez:RebuildInventoryCounts()
+    end
+    SmartRez:MarkCraftSalvageCacheDirty()
+    actionController:BeginExternalWait(SALVAGE_SORT_SETTLE_SECONDS, "bag restack settle", "bag restack settle timeout")
+    actionFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+    return true
+  end
 
-	local selection = self:GetCraftSalvageSelection(config.key)
-	if selection and selection.sortBagsOnLoad and self:HasProfession(config.professionID) then
-		_C_SortBags()
-		self:MarkCraftSalvageCacheDirty()
-	end
+  local selection = self:GetCraftSalvageSelection(config.key)
+  if selection and selection.sortBagsOnLoad and self:HasProfession(config.professionID) then
+    _C_SortBags()
+    self:MarkCraftSalvageCacheDirty()
+  end
 
-	self:CreateCraftActionButton(actionController, config.buttonName, function()
-		if bagSortSettling and not actionController:IsBlocked() then
-			bagSortSettling = false
-		end
+  self:CreateCraftActionButton(actionController, config.buttonName, function()
+    if bagSortSettling and not actionController:IsBlocked() then
+      bagSortSettling = false
+    end
 
-		if not SmartRez:HasProfession(config.professionID) then
-			actionController:Debug("skip", "profession missing")
-			return
-		end
+    -- Gold Printer cast limits are one-shot instructions for the next salvage action.
+    -- Consume and clear immediately so they cannot leak into later/manual salvage calls
+    -- if this function exits early.
+    local goldPrinterCastLimit = SmartRez.GetGoldPrinterCraftSalvageCastLimit
+        and SmartRez:GetGoldPrinterCraftSalvageCastLimit(config.key)
+        or nil
 
-		local selection = SmartRez:GetCraftSalvageSelection(config.key)
-		if not selection or not selection.recipeID then
-			actionController:Debug("skip", "no salvage selection")
-			return
-		end
+    if SmartRez.ClearGoldPrinterCraftSalvageCastLimit then
+      SmartRez:ClearGoldPrinterCraftSalvageCastLimit(config.key)
+    end
 
-		local requireProfessionOpen = selection.requireProfessionOpen ~= false
-		local openTradeSkillID = selection.openTradeSkillID or config.professionID
-		if requireProfessionOpen and not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
-			return
-		end
+    if not SmartRez:HasProfession(config.professionID) then
+      actionController:Debug("skip", "profession missing")
+      return
+    end
 
-		if requireProfessionOpen then
-			SmartRez:OpenCraftRecipeByID(actionController, selection.recipeID)
-		end
-		if SmartRez.RebuildInventoryCounts then
-			SmartRez:RebuildInventoryCounts()
-		end
-		SmartRez:MarkCraftSalvageCacheDirty()
-		SmartRez:RebuildCraftSalvageCache()
+    local selection = SmartRez:GetCraftSalvageSelection(config.key)
+    if not selection or not selection.recipeID then
+      actionController:Debug("skip", "no salvage selection")
+      return
+    end
 
-		local target = SmartRez:GetBestCraftSalvageLiveTarget(config.key)
-		local currentTargetItemInfo = target and _C_GetContainerItemInfo(target.bag, target.slot) or nil
-		if currentTargetItemInfo and currentTargetItemInfo.itemID == target.itemInfo.itemID and currentTargetItemInfo.stackCount >= selection.requiredStack then
-			local maxTargetCasts = _floor(currentTargetItemInfo.stackCount / selection.requiredStack)
-			local reagentPlan = SmartRez:BuildCraftSalvageReagentPlan(config.key, maxTargetCasts)
-			local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
-			local casts = reagentPlan and reagentPlan.maxCasts or (hasRequiredReagents and 0 or maxTargetCasts)
-			if casts > 0 then
-				local inventorySources = SmartRez:GetInventorySources()
-				local partialWarbankTarget = inventorySources.warbank == true
-					and SmartRez.GetWarbankPartialStackTarget
-					and SmartRez:GetWarbankPartialStackTarget(currentTargetItemInfo.itemID, selection.requiredStack)
-					or nil
-				if partialWarbankTarget then
-					if SmartRez:GetFreeBagSlots() <= 0 then
-						actionController:Debug("skip", "no free bag slots for partial warbank grab")
-						return
-					end
+    local requireProfessionOpen = selection.requireProfessionOpen ~= false
+    local openTradeSkillID = selection.openTradeSkillID or config.professionID
+    if requireProfessionOpen and not SmartRez:EnsureCraftProfessionOpen(actionController, openTradeSkillID) then
+      return
+    end
 
-					actionController:Debug(
-						"grabbing partial warbank stack",
-						"item", partialWarbankTarget.itemID or "nil",
-						"bag", partialWarbankTarget.bag or "nil",
-						"slot", partialWarbankTarget.slot or "nil",
-						"stack", partialWarbankTarget.stackCount or "nil"
-					)
-					if SmartRez.TryGrabWarbankTarget and SmartRez:TryGrabWarbankTarget(partialWarbankTarget) then
-						SmartRez:MarkCraftSalvageCacheDirty()
-						if SmartRez.RebuildInventoryCounts then
-							SmartRez:RebuildInventoryCounts()
-						end
-						return
-					end
+    if requireProfessionOpen then
+      SmartRez:OpenCraftRecipeByID(actionController, selection.recipeID)
+    end
 
-					actionController:Debug("skip", "failed to grab partial warbank stack")
-				end
+    if SmartRez.RebuildInventoryCounts then
+      SmartRez:RebuildInventoryCounts()
+    end
 
-				actionController:Debug(
-					"salvage target",
-					"item", currentTargetItemInfo.itemID or "nil",
-					"bag", target.bag or "nil",
-					"slot", target.slot or "nil",
-					"stack", currentTargetItemInfo.stackCount or "nil",
-					"requiredStack", selection.requiredStack or "nil",
-					"casts", casts
-				)
-				lastSalvageTargetItemID = currentTargetItemInfo.itemID
-				itemLocation:SetBagAndSlot(target.bag, target.slot)
-				actionController:BeginPendingStart(selection.recipeID)
-				_C_TradeSkillUI_CraftSalvage(selection.recipeID, casts, itemLocation, reagentPlan and reagentPlan.craftingReagents or nil)
-				SmartRez:MarkCraftSalvageCacheDirty()
-				return
-			end
-			actionController:Debug("skip", "no salvage casts after reagent plan")
-		elseif selection.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then
-			actionController:Debug("sorting bags", "empty target state")
-			_C_SortBags()
-			lastSortTime = _GetTime()
-			SmartRez:MarkCraftSalvageCacheDirty()
-		else
-			actionController:Debug(
-				"skip",
-				"no valid salvage target",
-				"target", currentTargetItemInfo and (currentTargetItemInfo.itemID or "present") or (target and (target.itemInfo.itemID or "present") or "nil"),
-				"stack", currentTargetItemInfo and currentTargetItemInfo.stackCount or "nil",
-				"requiredStack", selection.requiredStack or "nil"
-			)
-		end
-	end)
+    SmartRez:MarkCraftSalvageCacheDirty()
+    SmartRez:RebuildCraftSalvageCache()
 
-	actionFrame:SetScript("OnEvent", function(_, eventName, ...)
-		if eventName == "TRADE_SKILL_CRAFT_BEGIN" then
-			actionController:HandleCraftEvent(eventName, ...)
-			return
-		end
+    local target = SmartRez:GetBestCraftSalvageLiveTarget(config.key)
+    local currentTargetItemInfo = target and _C_GetContainerItemInfo(target.bag, target.slot) or nil
 
-		if eventName == "BAG_UPDATE_DELAYED" then
-			if actionController:HandleCraftEvent(eventName, ...) then
-				return
-			end
-		end
+    if currentTargetItemInfo
+        and currentTargetItemInfo.itemID == target.itemInfo.itemID
+        and currentTargetItemInfo.stackCount >= selection.requiredStack
+    then
+      local maxTargetCasts = _floor(currentTargetItemInfo.stackCount / selection.requiredStack)
 
-		if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
-			local unitToken, _, spellID = ...
-			actionController:HandleUnitSpellcastFailed(unitToken, spellID, "spell failed")
-			local selection = SmartRez:GetCraftSalvageSelection(config.key)
-			if unitToken ~= "player" or not selection or spellID ~= selection.recipeID then
-				return
-			end
+      if goldPrinterCastLimit then
+        maxTargetCasts = math.min(maxTargetCasts, goldPrinterCastLimit)
+      end
 
-			if SmartRez:GetFreeBagSlots() <= 0 then
-				return
-			end
+      local reagentPlan = SmartRez:BuildCraftSalvageReagentPlan(config.key, maxTargetCasts)
+      local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
+      local casts = reagentPlan and reagentPlan.maxCasts or (hasRequiredReagents and 0 or maxTargetCasts)
 
-			tryBeginBagRestack(eventName)
-			return
-		end
+      if casts > 0 then
+        local inventorySources = SmartRez:GetInventorySources()
+        local partialWarbankTarget = inventorySources.warbank == true
+            and SmartRez.GetWarbankPartialStackTarget
+            and SmartRez:GetWarbankPartialStackTarget(currentTargetItemInfo.itemID, selection.requiredStack)
+            or nil
 
-		if eventName == "UNIT_SPELLCAST_INTERRUPTED" then
-			local unitToken, _, spellID = ...
-			local selection = SmartRez:GetCraftSalvageSelection(config.key)
-			if unitToken ~= "player" or not selection or spellID ~= selection.recipeID then
-				return
-			end
+        if partialWarbankTarget then
+          if SmartRez:GetFreeBagSlots() <= 0 then
+            actionController:Debug("skip", "no free bag slots for partial warbank grab")
+            return
+          end
 
-			if actionController:HandleUnitSpellcastInterrupted(unitToken, spellID, eventName) then
-				tryBeginBagRestack(eventName)
-			end
-			return
-		end
+          actionController:Debug(
+            "grabbing partial warbank stack",
+            "item", partialWarbankTarget.itemID or "nil",
+            "bag", partialWarbankTarget.bag or "nil",
+            "slot", partialWarbankTarget.slot or "nil",
+            "stack", partialWarbankTarget.stackCount or "nil"
+          )
 
-		if eventName == "BAG_UPDATE_DELAYED" and bagSortSettling then
-			if SmartRez.RebuildInventoryCounts then
-				SmartRez:RebuildInventoryCounts()
-			end
-			SmartRez:MarkCraftSalvageCacheDirty()
-			if SmartRez:IsPlayerBagItemRestackActive(lastSalvageTargetItemID) then
-				actionController:SetTimeoutSilently(SALVAGE_SORT_SETTLE_SECONDS)
-				return
-			end
+          if SmartRez.TryGrabWarbankTarget and SmartRez:TryGrabWarbankTarget(partialWarbankTarget) then
+            SmartRez:MarkCraftSalvageCacheDirty()
 
-			bagSortSettling = false
-			if SmartRez:GetFreeBagSlots() <= 0 then
-				actionController:BeginBagSpaceWait(nil, "waiting for bag space")
-				return
-			end
+            if SmartRez.RebuildInventoryCounts then
+              SmartRez:RebuildInventoryCounts()
+            end
 
-			actionController:Unlock("bag restack settled")
-			return
-		end
+            return
+          end
 
-		if not actionController:IsBlocked() and bagSortSettling then
-			bagSortSettling = false
-		end
-	end)
+          actionController:Debug("skip", "failed to grab partial warbank stack")
+        end
 
-	SmartRez:RegisterBindableAction({
-		key = config.key,
-		label = config.label,
-		buttonName = config.buttonName,
-		order = config.order,
-		requiredProfession = config.professionID,
-	})
-	SmartRez:MarkCraftSalvageCacheDirty()
+        actionController:Debug(
+          "salvage target",
+          "item", currentTargetItemInfo.itemID or "nil",
+          "bag", target.bag or "nil",
+          "slot", target.slot or "nil",
+          "stack", currentTargetItemInfo.stackCount or "nil",
+          "requiredStack", selection.requiredStack or "nil",
+          "casts", casts,
+          "goldPrinterLimit", goldPrinterCastLimit or "nil"
+        )
 
-	return actionFrame
+        lastSalvageTargetItemID = currentTargetItemInfo.itemID
+        itemLocation:SetBagAndSlot(target.bag, target.slot)
+        actionController:BeginPendingStart(selection.recipeID)
+
+        _C_TradeSkillUI_CraftSalvage(
+          selection.recipeID,
+          casts,
+          itemLocation,
+          reagentPlan and reagentPlan.craftingReagents or nil
+        )
+
+        SmartRez:MarkCraftSalvageCacheDirty()
+        return
+      end
+
+      actionController:Debug("skip", "no salvage casts after reagent plan")
+    elseif selection.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then
+      actionController:Debug("sorting bags", "empty target state")
+      _C_SortBags()
+      lastSortTime = _GetTime()
+      SmartRez:MarkCraftSalvageCacheDirty()
+    else
+      actionController:Debug(
+        "skip",
+        "no valid salvage target",
+        "target",
+        currentTargetItemInfo and (currentTargetItemInfo.itemID or "present")
+        or (target and (target.itemInfo.itemID or "present") or "nil"),
+        "stack", currentTargetItemInfo and currentTargetItemInfo.stackCount or "nil",
+        "requiredStack", selection.requiredStack or "nil",
+        "goldPrinterLimit", goldPrinterCastLimit or "nil"
+      )
+    end
+  end)
+
+  actionFrame:SetScript("OnEvent", function(_, eventName, ...)
+    if eventName == "TRADE_SKILL_CRAFT_BEGIN" then
+      actionController:HandleCraftEvent(eventName, ...)
+      return
+    end
+
+    if eventName == "BAG_UPDATE_DELAYED" then
+      if actionController:HandleCraftEvent(eventName, ...) then
+        return
+      end
+    end
+
+    if eventName == "UNIT_SPELLCAST_FAILED" or eventName == "UNIT_SPELLCAST_FAILED_QUIET" then
+      local unitToken, _, spellID = ...
+      actionController:HandleUnitSpellcastFailed(unitToken, spellID, "spell failed")
+      local selection = SmartRez:GetCraftSalvageSelection(config.key)
+      if unitToken ~= "player" or not selection or spellID ~= selection.recipeID then
+        return
+      end
+
+      if SmartRez:GetFreeBagSlots() <= 0 then
+        return
+      end
+
+      tryBeginBagRestack(eventName)
+      return
+    end
+
+    if eventName == "UNIT_SPELLCAST_INTERRUPTED" then
+      local unitToken, _, spellID = ...
+      local selection = SmartRez:GetCraftSalvageSelection(config.key)
+      if unitToken ~= "player" or not selection or spellID ~= selection.recipeID then
+        return
+      end
+
+      if actionController:HandleUnitSpellcastInterrupted(unitToken, spellID, eventName) then
+        tryBeginBagRestack(eventName)
+      end
+      return
+    end
+
+    if eventName == "BAG_UPDATE_DELAYED" and bagSortSettling then
+      if SmartRez.RebuildInventoryCounts then
+        SmartRez:RebuildInventoryCounts()
+      end
+      SmartRez:MarkCraftSalvageCacheDirty()
+      if SmartRez:IsPlayerBagItemRestackActive(lastSalvageTargetItemID) then
+        actionController:SetTimeoutSilently(SALVAGE_SORT_SETTLE_SECONDS)
+        return
+      end
+
+      bagSortSettling = false
+      if SmartRez:GetFreeBagSlots() <= 0 then
+        actionController:BeginBagSpaceWait(nil, "waiting for bag space")
+        return
+      end
+
+      actionController:Unlock("bag restack settled")
+      return
+    end
+
+    if not actionController:IsBlocked() and bagSortSettling then
+      bagSortSettling = false
+    end
+  end)
+
+  SmartRez:RegisterBindableAction({
+    key = config.key,
+    label = config.label,
+    buttonName = config.buttonName,
+    order = config.order,
+    requiredProfession = config.professionID,
+  })
+  SmartRez:MarkCraftSalvageCacheDirty()
+
+  return actionFrame
 end
 
 function SmartRez:IsCraftSalvageActionBlocked(key)
-	local actionController = self.craftSalvageActionFrames and self.craftSalvageActionFrames[key]
-	if not actionController or not actionController.IsBlocked then
-		return false
-	end
+  local actionController = self.craftSalvageActionFrames and self.craftSalvageActionFrames[key]
+  if not actionController or not actionController.IsBlocked then
+    return false
+  end
 
-	return actionController:IsBlocked()
+  return actionController:IsBlocked()
 end

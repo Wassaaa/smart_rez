@@ -13,185 +13,193 @@ local bagValuePopupSnapshot
 local bagValueRateRefreshers = {}
 local bagValueRateTicker
 local bagValueSession = {
-	baselineTotal = nil,
-	elapsedSeconds = 0,
-	lastDisplayedTotal = nil,
-	lastDelta = 0,
-	resumedAt = nil,
+  baselineTotal = nil,
+  elapsedSeconds = 0,
+  lastDisplayedTotal = nil,
+  lastDelta = 0,
+  resumedAt = nil,
 }
 
 local function debugBagValue(format, ...)
-	if SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled() then
-		print(string.format("SmartRez Value: " .. format, ...))
-	end
+  if not (SmartRez.GetDebugEnabled and SmartRez:GetDebugEnabled()) then
+    return
+  end
+
+  local ok, message = pcall(string.format, "SmartRez Value: " .. tostring(format or ""), ...)
+  if ok then
+    print(message)
+  else
+    print("SmartRez Value:", tostring(format), ...)
+  end
 end
 
 local function colorMoneyText(text)
-	text = tostring(text or "")
-	text = text:gsub("g", UI.Colorize("FFD866", "g"))
-	text = text:gsub("s", UI.Colorize("C0C0C0", "s"))
-	return text
+  text = tostring(text or "")
+  text = text:gsub("g", UI.Colorize("FFD866", "g"))
+  text = text:gsub("s", UI.Colorize("C0C0C0", "s"))
+  return text
 end
 
 local function formatBagValueDelta(value)
-	value = math.floor(tonumber(value) or 0)
-	if value == 0 then
-		return ""
-	end
+  value = math.floor(tonumber(value) or 0)
+  if value == 0 then
+    return ""
+  end
 
-	return UI.Colorize(value > 0 and "7EE787" or "FF7B72", colorMoneyText(UI.FormatMoneyDelta(value)))
+  return UI.Colorize(value > 0 and "7EE787" or "FF7B72", colorMoneyText(UI.FormatMoneyDelta(value)))
 end
 
 local function getSessionNow()
-	if GetTimePreciseSec then
-		return GetTimePreciseSec()
-	end
-	return GetTime()
+  if GetTimePreciseSec then
+    return GetTimePreciseSec()
+  end
+  return GetTime()
 end
 
 local function getBagValueSessionElapsed()
-	local elapsed = bagValueSession.elapsedSeconds or 0
-	if bagValueSession.resumedAt then
-		elapsed = elapsed + math.max(0, getSessionNow() - bagValueSession.resumedAt)
-	end
-	return elapsed
+  local elapsed = bagValueSession.elapsedSeconds or 0
+  if bagValueSession.resumedAt then
+    elapsed = elapsed + math.max(0, getSessionNow() - bagValueSession.resumedAt)
+  end
+  return elapsed
 end
 
 local function resetBagValueSession(snapshot)
-	snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
-	local total = snapshot and snapshot.totalSelectedValue or 0
-	debugBagValue("session baseline reset total=%d", total)
-	bagValueSession.baselineTotal = total
-	bagValueSession.elapsedSeconds = 0
-	bagValueSession.lastDisplayedTotal = total
-	bagValueSession.lastDelta = 0
-	bagValueSession.resumedAt = getSessionNow()
-	return bagValueSession
+  snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
+  local total = snapshot and snapshot.totalSelectedValue or 0
+  debugBagValue("session baseline reset total=%s", tostring(total))
+  bagValueSession.baselineTotal = total
+  bagValueSession.elapsedSeconds = 0
+  bagValueSession.lastDisplayedTotal = total
+  bagValueSession.lastDelta = 0
+  bagValueSession.resumedAt = getSessionNow()
+  return bagValueSession
 end
 
 local function clearBagValueSession()
-	debugBagValue("session reset")
-	bagValueSession.baselineTotal = nil
-	bagValueSession.elapsedSeconds = 0
-	bagValueSession.lastDisplayedTotal = nil
-	bagValueSession.lastDelta = 0
-	bagValueSession.resumedAt = nil
+  debugBagValue("session reset")
+  bagValueSession.baselineTotal = nil
+  bagValueSession.elapsedSeconds = 0
+  bagValueSession.lastDisplayedTotal = nil
+  bagValueSession.lastDelta = 0
+  bagValueSession.resumedAt = nil
 end
 
 local function ensureBagValueSession(snapshot)
-	if bagValueSession.baselineTotal == nil then
-		return resetBagValueSession(snapshot)
-	end
+  if bagValueSession.baselineTotal == nil then
+    return resetBagValueSession(snapshot)
+  end
 
-	return bagValueSession
+  return bagValueSession
 end
 
 local function resumeBagValueSession(snapshot)
-	ensureBagValueSession(snapshot)
-	if not bagValueSession.resumedAt then
-		bagValueSession.resumedAt = getSessionNow()
-	end
-	return bagValueSession
+  ensureBagValueSession(snapshot)
+  if not bagValueSession.resumedAt then
+    bagValueSession.resumedAt = getSessionNow()
+  end
+  return bagValueSession
 end
 
 local function isBagValuePopupShown()
-	return bagValuePopupFrame and bagValuePopupFrame.IsShown and bagValuePopupFrame:IsShown()
+  return bagValuePopupFrame and bagValuePopupFrame.IsShown and bagValuePopupFrame:IsShown()
 end
 
 local function isBagValueSetupShown()
-	return SmartRez.IsAutomationConfigWindowShown and SmartRez:IsAutomationConfigWindowShown()
+  return SmartRez.IsAutomationConfigWindowShown and SmartRez:IsAutomationConfigWindowShown()
 end
 
 local function maybeClearBagValueSession()
-	if isBagValuePopupShown() or isBagValueSetupShown() then
-		debugBagValue(
-			"session kept popup=%s setup=%s",
-			tostring(isBagValuePopupShown() == true),
-			tostring(isBagValueSetupShown() == true)
-		)
-		return
-	end
+  if isBagValuePopupShown() or isBagValueSetupShown() then
+    debugBagValue(
+      "session kept popup=%s setup=%s",
+      tostring(isBagValuePopupShown() == true),
+      tostring(isBagValueSetupShown() == true)
+    )
+    return
+  end
 
-	clearBagValueSession()
+  clearBagValueSession()
 end
 
 function SmartRez:HandleBagValueSurfaceClosed()
-	debugBagValue("surface close check queued")
-	if C_Timer and C_Timer.After then
-		C_Timer.After(0, maybeClearBagValueSession)
-	else
-		maybeClearBagValueSession()
-	end
+  debugBagValue("surface close check queued")
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0, maybeClearBagValueSession)
+  else
+    maybeClearBagValueSession()
+  end
 end
 
 local function updateBagValueSessionTotal(snapshot)
-	local session = ensureBagValueSession(snapshot)
-	local total = snapshot and snapshot.totalSelectedValue or 0
-	local delta = total - (session.lastDisplayedTotal or total)
-	if delta ~= 0 then
-		session.lastDelta = delta
-	end
-	session.lastDisplayedTotal = total
-	return session
+  local session = ensureBagValueSession(snapshot)
+  local total = snapshot and snapshot.totalSelectedValue or 0
+  local delta = total - (session.lastDisplayedTotal or total)
+  if delta ~= 0 then
+    session.lastDelta = delta
+  end
+  session.lastDisplayedTotal = total
+  return session
 end
 
 local function getBagValueElapsedText()
-	if bagValueSession.baselineTotal == nil then
-		return UI.Colorize("7D8590", "0s")
-	end
+  if bagValueSession.baselineTotal == nil then
+    return UI.Colorize("7D8590", "0s")
+  end
 
-	local elapsed = math.max(0, math.floor(getBagValueSessionElapsed()))
-	if elapsed >= 3600 then
-		return UI.Colorize("7D8590", string.format("%dh %02dm", math.floor(elapsed / 3600), math.floor((elapsed % 3600) / 60)))
-	elseif elapsed >= 60 then
-		return UI.Colorize("7D8590", string.format("%dm %02ds", math.floor(elapsed / 60), elapsed % 60))
-	end
+  local elapsed = math.max(0, math.floor(getBagValueSessionElapsed()))
+  if elapsed >= 3600 then
+    return UI.Colorize("7D8590",
+      string.format("%dh %02dm", math.floor(elapsed / 3600), math.floor((elapsed % 3600) / 60)))
+  elseif elapsed >= 60 then
+    return UI.Colorize("7D8590", string.format("%dm %02ds", math.floor(elapsed / 60), elapsed % 60))
+  end
 
-	return UI.Colorize("7D8590", tostring(elapsed) .. "s")
+  return UI.Colorize("7D8590", tostring(elapsed) .. "s")
 end
 
 local function getBagValuePerHourText(snapshot)
-	snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
-	local session = ensureBagValueSession(snapshot)
-	local elapsed = math.max(1, getBagValueSessionElapsed())
-	local delta = (snapshot.totalSelectedValue or 0) - (session.baselineTotal or 0)
-	local perHour = math.floor(delta * 3600 / elapsed)
-	local color = perHour >= 0 and "7EE787" or "FF7B72"
-	return UI.Colorize(color, colorMoneyText(UI.FormatMoneyDelta(perHour)) .. "/h")
+  snapshot = snapshot or SmartRez:BuildBagValueSnapshot()
+  local session = ensureBagValueSession(snapshot)
+  local elapsed = math.max(1, getBagValueSessionElapsed())
+  local delta = (snapshot.totalSelectedValue or 0) - (session.baselineTotal or 0)
+  local perHour = math.floor(delta * 3600 / elapsed)
+  local color = perHour >= 0 and "7EE787" or "FF7B72"
+  return UI.Colorize(color, colorMoneyText(UI.FormatMoneyDelta(perHour)) .. "/h")
 end
 
 local function refreshOpenBagValuePopupValue()
-	if bagValuePopupFrame and bagValuePopupFrame:IsShown() and bagValuePopupFrame.refreshValue then
-		bagValuePopupSnapshot = SmartRez:BuildBagValueSnapshot()
-		bagValuePopupFrame.refreshValue()
-	end
+  if bagValuePopupFrame and bagValuePopupFrame:IsShown() and bagValuePopupFrame.refreshValue then
+    bagValuePopupSnapshot = SmartRez:BuildBagValueSnapshot()
+    bagValuePopupFrame.refreshValue()
+  end
 end
 
 local function registerBagValueRateRefresher(callback)
-	if type(callback) ~= "function" then
-		return
-	end
+  if type(callback) ~= "function" then
+    return
+  end
 
-	bagValueRateRefreshers[#bagValueRateRefreshers + 1] = callback
-	if bagValueRateTicker or not (C_Timer and C_Timer.NewTicker) then
-		return
-	end
+  bagValueRateRefreshers[#bagValueRateRefreshers + 1] = callback
+  if bagValueRateTicker or not (C_Timer and C_Timer.NewTicker) then
+    return
+  end
 
-	bagValueRateTicker = C_Timer.NewTicker(1, function()
-		local activeRefreshers = {}
-		for _, refresher in ipairs(bagValueRateRefreshers) do
-			local ok, keep = pcall(refresher)
-			if ok and keep ~= false then
-				activeRefreshers[#activeRefreshers + 1] = refresher
-			end
-		end
+  bagValueRateTicker = C_Timer.NewTicker(1, function()
+    local activeRefreshers = {}
+    for _, refresher in ipairs(bagValueRateRefreshers) do
+      local ok, keep = pcall(refresher)
+      if ok and keep ~= false then
+        activeRefreshers[#activeRefreshers + 1] = refresher
+      end
+    end
 
-		bagValueRateRefreshers = activeRefreshers
-		if #activeRefreshers == 0 and bagValueRateTicker then
-			bagValueRateTicker:Cancel()
-			bagValueRateTicker = nil
-		end
-	end)
+    bagValueRateRefreshers = activeRefreshers
+    if #activeRefreshers == 0 and bagValueRateTicker then
+      bagValueRateTicker:Cancel()
+      bagValueRateTicker = nil
+    end
+  end)
 end
 
 ---@class SmartRezBagValueSnapshotItem
@@ -226,337 +234,342 @@ end
 ---@param snapshotRef fun(): SmartRezBagValueSnapshot
 ---@param config? table
 function UI.RenderBagValueDisplay(parent, snapshotRef, config)
-	config = config or {}
-	local snapshot = snapshotRef()
-	local group = UI.CreateCard(parent, "Auctionable Bag Value")
-	local displayToken = {
-		active = true,
-	}
-	resumeBagValueSession(snapshot)
-	local session = updateBagValueSessionTotal(snapshot)
+  config = config or {}
+  local snapshot = snapshotRef()
+  local group = UI.CreateCard(parent, "Auctionable Bag Value")
+  local displayToken = {
+    active = true,
+  }
+  resumeBagValueSession(snapshot)
+  local session = updateBagValueSessionTotal(snapshot)
 
-	local function deactivateDisplay()
-		if not displayToken.active then
-			return
-		end
+  local function deactivateDisplay()
+    if not displayToken.active then
+      return
+    end
 
-		displayToken.active = false
-	end
+    displayToken.active = false
+  end
 
-	group:SetCallback("OnRelease", function()
-		deactivateDisplay()
-	end)
+  group:SetCallback("OnRelease", function()
+    deactivateDisplay()
+  end)
 
-	local rateRow = AceGUI:Create("SimpleGroup")
-	rateRow:SetFullWidth(true)
-	rateRow:SetLayout("Flow")
-	group:AddChild(rateRow)
+  local rateRow = AceGUI:Create("SimpleGroup")
+  rateRow:SetFullWidth(true)
+  rateRow:SetLayout("Flow")
+  group:AddChild(rateRow)
 
-	local isPopupDisplay = config.showPopupButton == false
-	local rateSpacer = AceGUI:Create("Label")
-	rateSpacer:SetWidth(isPopupDisplay and 58 or 250)
-	rateSpacer:SetText("")
-	rateRow:AddChild(rateSpacer)
+  local isPopupDisplay = config.showPopupButton == false
+  local rateSpacer = AceGUI:Create("Label")
+  rateSpacer:SetWidth(isPopupDisplay and 58 or 250)
+  rateSpacer:SetText("")
+  rateRow:AddChild(rateSpacer)
 
-	---@type AceGUILabel
-	local timerLabel = AceGUI:Create("Label")
-	timerLabel:SetWidth(72)
-	timerLabel:SetText(getBagValueElapsedText())
-	timerLabel:SetJustifyH("RIGHT")
-	timerLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-	rateRow:AddChild(timerLabel)
+  ---@type AceGUILabel
+  local timerLabel = AceGUI:Create("Label")
+  timerLabel:SetWidth(72)
+  timerLabel:SetText(getBagValueElapsedText())
+  timerLabel:SetJustifyH("RIGHT")
+  timerLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+  rateRow:AddChild(timerLabel)
 
-	---@type AceGUILabel
-	local rateLabel = AceGUI:Create("Label")
-	rateLabel:SetWidth(isPopupDisplay and 170 or 180)
-	rateLabel:SetText(getBagValuePerHourText(snapshot))
-	rateLabel:SetJustifyH("RIGHT")
-	rateLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-	rateRow:AddChild(rateLabel)
+  ---@type AceGUILabel
+  local rateLabel = AceGUI:Create("Label")
+  rateLabel:SetWidth(isPopupDisplay and 170 or 180)
+  rateLabel:SetText(getBagValuePerHourText(snapshot))
+  rateLabel:SetJustifyH("RIGHT")
+  rateLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+  rateRow:AddChild(rateLabel)
 
-	local resetGap = AceGUI:Create("Label")
-	resetGap:SetWidth(14)
-	resetGap:SetText("")
-	rateRow:AddChild(resetGap)
+  local resetGap = AceGUI:Create("Label")
+  resetGap:SetWidth(14)
+  resetGap:SetText("")
+  rateRow:AddChild(resetGap)
 
-	local refreshTotalLabels
+  local refreshTotalLabels
 
-	UI.CreateIconButton(rateRow, {
-		texture = RESET_ICON,
-		text = "R",
-		width = 34,
-		iconSize = 16,
-		tooltip = "Reset value timer",
-		tooltipNote = "Starts a fresh gold/hour baseline from the current total.",
-		onClick = function()
-			resetBagValueSession(snapshotRef())
-			if refreshTotalLabels then
-				refreshTotalLabels()
-			else
-				rateLabel:SetText(getBagValuePerHourText(snapshotRef()))
-			end
-			refreshOpenBagValuePopupValue()
-		end,
-	})
+  UI.CreateIconButton(rateRow, {
+    texture = RESET_ICON,
+    text = "R",
+    width = 34,
+    iconSize = 16,
+    tooltip = "Reset value timer",
+    tooltipNote = "Starts a fresh gold/hour baseline from the current total.",
+    onClick = function()
+      resetBagValueSession(snapshotRef())
+      if refreshTotalLabels then
+        refreshTotalLabels()
+      else
+        rateLabel:SetText(getBagValuePerHourText(snapshotRef()))
+      end
+      refreshOpenBagValuePopupValue()
+    end,
+  })
 
-	if config.showPopupButton ~= false then
-		UI.CreateIconButton(rateRow, {
-			texture = POPUP_ICON,
-			text = "P",
-			width = 34,
-			iconSize = 30,
-			tooltip = "Open bag value popup",
-			onClick = function()
-				SmartRez:ShowBagValuePopup()
-				if refreshTotalLabels then
-					refreshTotalLabels()
-				end
-			end,
-		})
-	end
+  if config.showPopupButton ~= false then
+    UI.CreateIconButton(rateRow, {
+      texture = POPUP_ICON,
+      text = "P",
+      width = 34,
+      iconSize = 30,
+      tooltip = "Open bag value popup",
+      onClick = function()
+        SmartRez:ShowBagValuePopup()
+        if refreshTotalLabels then
+          refreshTotalLabels()
+        end
+      end,
+    })
+  end
 
-	if config.showConfigButton == true then
-		UI.CreateIconButton(rateRow, {
-			texture = CONFIG_ICON,
-			text = "C",
-			width = 34,
-			iconSize = 16,
-			tooltip = "Open bag value config",
-			tooltipNote = "Edit tracked item whitelists and value source settings.",
-			onClick = function()
-				SmartRez:ShowAutomationConfigWindow("bagvalue")
-			end,
-		})
-	end
+  if config.showConfigButton == true then
+    UI.CreateIconButton(rateRow, {
+      texture = CONFIG_ICON,
+      text = "C",
+      width = 34,
+      iconSize = 16,
+      tooltip = "Open bag value config",
+      tooltipNote = "Edit tracked item whitelists and value source settings.",
+      onClick = function()
+        SmartRez:ShowAutomationConfigWindow("bagvalue")
+      end,
+    })
+  end
 
-	---@type AceGUILabel
-	local totalLabel = AceGUI:Create("Label")
-	totalLabel:SetFullWidth(true)
-	totalLabel:SetText(colorMoneyText(snapshot.totalSelectedValueText))
-	totalLabel:SetJustifyH("CENTER")
-	totalLabel:SetFont("Fonts\\FRIZQT__.TTF", 28, "OUTLINE")
-	group:AddChild(totalLabel)
+  ---@type AceGUILabel
+  local totalLabel = AceGUI:Create("Label")
+  totalLabel:SetFullWidth(true)
+  totalLabel:SetText(colorMoneyText(snapshot.totalSelectedValueText))
+  totalLabel:SetJustifyH("CENTER")
+  totalLabel:SetFont("Fonts\\FRIZQT__.TTF", 28, "OUTLINE")
+  group:AddChild(totalLabel)
 
-	---@type AceGUILabel
-	local deltaLabel = AceGUI:Create("Label")
-	deltaLabel:SetFullWidth(true)
-	deltaLabel:SetText(formatBagValueDelta(session.lastDelta or 0))
-	deltaLabel:SetJustifyH("CENTER")
-	deltaLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-	group:AddChild(deltaLabel)
+  ---@type AceGUILabel
+  local deltaLabel = AceGUI:Create("Label")
+  deltaLabel:SetFullWidth(true)
+  deltaLabel:SetText(formatBagValueDelta(session.lastDelta or 0))
+  deltaLabel:SetJustifyH("CENTER")
+  deltaLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+  group:AddChild(deltaLabel)
 
-	local deltaSpacer = AceGUI:Create("Label")
-	deltaSpacer:SetFullWidth(true)
-	deltaSpacer:SetText(" ")
-	deltaSpacer:SetFont("Fonts\\FRIZQT__.TTF", 5, "")
-	group:AddChild(deltaSpacer)
+  local deltaSpacer = AceGUI:Create("Label")
+  deltaSpacer:SetFullWidth(true)
+  deltaSpacer:SetText(" ")
+  deltaSpacer:SetFont("Fonts\\FRIZQT__.TTF", 5, "")
+  group:AddChild(deltaSpacer)
 
-	refreshTotalLabels = function()
-		if not displayToken.active or not group:IsShown() then
-			deactivateDisplay()
-			return
-		end
+  refreshTotalLabels = function()
+    if not displayToken.active or not group:IsShown() then
+      deactivateDisplay()
+      return
+    end
 
-		local current = snapshotRef()
-		local currentSession = updateBagValueSessionTotal(current)
-		totalLabel:SetText(colorMoneyText(current.totalSelectedValueText))
-		deltaLabel:SetText(formatBagValueDelta(currentSession.lastDelta or 0))
-		timerLabel:SetText(getBagValueElapsedText())
-		rateLabel:SetText(getBagValuePerHourText(current))
-	end
+    local current = snapshotRef()
+    local currentSession = updateBagValueSessionTotal(current)
+    totalLabel:SetText(colorMoneyText(current.totalSelectedValueText))
+    deltaLabel:SetText(formatBagValueDelta(currentSession.lastDelta or 0))
+    timerLabel:SetText(getBagValueElapsedText())
+    rateLabel:SetText(getBagValuePerHourText(current))
+  end
 
-	registerBagValueRateRefresher(function()
-		if not displayToken.active or not group:IsShown() then
-			deactivateDisplay()
-			return false
-		end
+  registerBagValueRateRefresher(function()
+    if not displayToken.active or not group:IsShown() then
+      deactivateDisplay()
+      return false
+    end
 
-		timerLabel:SetText(getBagValueElapsedText())
-		rateLabel:SetText(getBagValuePerHourText(snapshotRef()))
-		return true
-	end)
+    timerLabel:SetText(getBagValueElapsedText())
+    rateLabel:SetText(getBagValuePerHourText(snapshotRef()))
+    return true
+  end)
 
-	if config.registerInventoryRefresher ~= false and SmartRez.RegisterAutomationConfigInventoryRefresher then
-		SmartRez:RegisterAutomationConfigInventoryRefresher(refreshTotalLabels)
-	end
+  if config.registerInventoryRefresher ~= false and SmartRez.RegisterAutomationConfigInventoryRefresher then
+    SmartRez:RegisterAutomationConfigInventoryRefresher(refreshTotalLabels)
+  end
 
-	---@type AceGUIEditBox
-	local priceEdit = AceGUI:Create("EditBox")
-	priceEdit:SetFullWidth(true)
-	priceEdit:SetLabel("TSM price source / custom price")
-	priceEdit:SetText(snapshot.priceSource)
-	priceEdit:SetCallback("OnEnterPressed", function(_, _, value)
-		SmartRez:SetBagValuePriceSource(value)
-	end)
-	group:AddChild(priceEdit)
+  ---@type AceGUIEditBox
+  local priceEdit = AceGUI:Create("EditBox")
+  priceEdit:SetFullWidth(true)
+  priceEdit:SetLabel("TSM price source / custom price")
+  priceEdit:SetText(snapshot.priceSource)
+  priceEdit:SetCallback("OnEnterPressed", function(_, _, value)
+    SmartRez:SetBagValuePriceSource(value)
+  end)
+  group:AddChild(priceEdit)
 
-	local filterCheck = AceGUI:Create("CheckBox")
-	filterCheck:SetLabel("Only show auctionable items")
-	filterCheck:SetValue(snapshot.onlyAuctionable)
-	filterCheck:SetCallback("OnValueChanged", function(_, _, value)
-		SmartRez:SetBagValueOnlyAuctionable(value)
-	end)
-	group:AddChild(filterCheck)
+  local filterCheck = AceGUI:Create("CheckBox")
+  filterCheck:SetLabel("Only show auctionable items")
+  filterCheck:SetValue(snapshot.onlyAuctionable)
+  filterCheck:SetCallback("OnValueChanged", function(_, _, value)
+    SmartRez:SetBagValueOnlyAuctionable(value)
+  end)
+  group:AddChild(filterCheck)
 
-	if not snapshot.isTSMAvailable then
-		UI.AddLabel(group, "TradeSkillMaster is not loaded, so Smart Rez cannot evaluate the selected item values yet.", "FFB86C")
-	elseif snapshot.invalidPriceMessage then
-		UI.AddLabel(group, "Price error: " .. tostring(snapshot.invalidPriceMessage), "FF7B72")
-	elseif snapshot.missingPriceQuantity > 0 then
-		UI.AddLabel(group, "Missing price data for " .. tostring(snapshot.missingPriceQuantity) .. " selected item(s).", "FFD866")
-	end
+  if not snapshot.isTSMAvailable then
+    UI.AddLabel(group, "TradeSkillMaster is not loaded, so Smart Rez cannot evaluate the selected item values yet.",
+      "FFB86C")
+  elseif snapshot.invalidPriceMessage then
+    UI.AddLabel(group, "Price error: " .. tostring(snapshot.invalidPriceMessage), "FF7B72")
+  elseif snapshot.missingPriceQuantity > 0 then
+    UI.AddLabel(group, "Missing price data for " .. tostring(snapshot.missingPriceQuantity) .. " selected item(s).",
+      "FFD866")
+  end
 
-	if not snapshot.hasSelection then
-		UI.AddLabel(group, "No items selected yet. Click icons below to build your tracked set.", "7D8590")
-	end
+  if not snapshot.hasSelection then
+    UI.AddLabel(group, "No items selected yet. Click icons below to build your tracked set.", "7D8590")
+  end
 
-	return refreshTotalLabels
+  return refreshTotalLabels
 end
 
 ---@class SmartRezBagValuePopupWindow: AceGUIWindow
 ---@field refreshValue? fun()
 
 function SmartRez:ShowBagValuePopup()
-	---@type SmartRezBagValueSnapshot
-	bagValuePopupSnapshot = self:BuildBagValueSnapshot()
-	ensureBagValueSession(bagValuePopupSnapshot)
+  ---@type SmartRezBagValueSnapshot
+  bagValuePopupSnapshot = self:BuildBagValueSnapshot()
+  ensureBagValueSession(bagValuePopupSnapshot)
 
-	if not bagValuePopupFrame then
-		---@type SmartRezBagValuePopupWindow
-		bagValuePopupFrame = AceGUI:Create("Window")
-		bagValuePopupFrame:SetStatusTable(UI.GetWindowStatus("bagValuePopup", {
-			width = 430,
-			height = 240,
-		}))
-		bagValuePopupFrame:SetTitle("Smart Rez Bag Value")
-		bagValuePopupFrame:SetStatusText("")
-		bagValuePopupFrame:EnableResize(false)
-		bagValuePopupFrame:SetLayout("List")
-		bagValuePopupFrame.frame:SetFrameStrata("DIALOG")
-		bagValuePopupFrame:SetCallback("OnClose", function(widget)
-			widget:Hide()
-			if SmartRez.HandleBagValueSurfaceClosed then
-				SmartRez:HandleBagValueSurfaceClosed()
-			end
-		end)
-		bagValuePopupFrame.frame:HookScript("OnHide", function()
-			if SmartRez.HandleBagValueSurfaceClosed then
-				SmartRez:HandleBagValueSurfaceClosed()
-			end
-		end)
+  if not bagValuePopupFrame then
+    ---@type SmartRezBagValuePopupWindow
+    bagValuePopupFrame = AceGUI:Create("Window")
+    bagValuePopupFrame:SetStatusTable(UI.GetWindowStatus("bagValuePopup", {
+      width = 430,
+      height = 240,
+    }))
+    bagValuePopupFrame:SetTitle("Smart Rez Bag Value")
+    bagValuePopupFrame:SetStatusText("")
+    bagValuePopupFrame:EnableResize(false)
+    bagValuePopupFrame:SetLayout("List")
+    bagValuePopupFrame.frame:SetFrameStrata("DIALOG")
+    bagValuePopupFrame:SetCallback("OnClose", function(widget)
+      widget:Hide()
+      if SmartRez.HandleBagValueSurfaceClosed then
+        SmartRez:HandleBagValueSurfaceClosed()
+      end
+    end)
+    bagValuePopupFrame.frame:HookScript("OnHide", function()
+      if SmartRez.HandleBagValueSurfaceClosed then
+        SmartRez:HandleBagValueSurfaceClosed()
+      end
+    end)
 
-		function bagValuePopupFrame:Refresh(reason)
-			bagValuePopupSnapshot = SmartRez:BuildBagValueSnapshot()
-			if reason == "inventory" and self.refreshValue then
-				self.refreshValue()
-				return
-			end
+    function bagValuePopupFrame:Refresh(reason)
+      bagValuePopupSnapshot = SmartRez:BuildBagValueSnapshot()
+      if reason == "inventory" and self.refreshValue then
+        self.refreshValue()
+        return
+      end
 
-			self:ReleaseChildren()
-			self.refreshValue = UI.RenderBagValueDisplay(self, function()
-				return bagValuePopupSnapshot
-			end, {
-				showPopupButton = false,
-				showConfigButton = true,
-				registerInventoryRefresher = false,
-			})
-		end
+      self:ReleaseChildren()
+      self.refreshValue = UI.RenderBagValueDisplay(self, function()
+        return bagValuePopupSnapshot
+      end, {
+        showPopupButton = false,
+        showConfigButton = true,
+        registerInventoryRefresher = false,
+      })
+    end
 
-		SmartRez:RegisterManagedFrame(bagValuePopupFrame)
-	end
+    SmartRez:RegisterManagedFrame(bagValuePopupFrame)
+  end
 
-	bagValuePopupFrame:Refresh()
-	bagValuePopupFrame:Show()
+  bagValuePopupFrame:Refresh()
+  bagValuePopupFrame:Show()
 end
 
 ---@param parent AceGUIContainer
 function UI.RenderBagValueTab(parent)
-	local snapshot = SmartRez:BuildBagValueSnapshot()
-	local currentSnapshot = snapshot
-	if SmartRez.RegisterAutomationConfigInventoryRefresher then
-		SmartRez:RegisterAutomationConfigInventoryRefresher(function()
-			currentSnapshot = SmartRez:BuildBagValueSnapshot()
-		end)
-	end
+  local snapshot = SmartRez:BuildBagValueSnapshot()
+  local currentSnapshot = snapshot
+  if SmartRez.RegisterAutomationConfigInventoryRefresher then
+    SmartRez:RegisterAutomationConfigInventoryRefresher(function()
+      currentSnapshot = SmartRez:BuildBagValueSnapshot()
+    end)
+  end
 
-	UI.RenderInventorySourcesGroup(parent, {
-		title = "Value Sources",
-		helpText = "Choose where Smart Rez looks for bag-value items. This source selection is separate from crafting, salvage, and disenchant. Enabling warbank here will prime the profession proxy backend so warbank items can enumerate.",
-		getSources = function()
-			return SmartRez:GetBagValueInventorySources()
-		end,
-		setSources = function(updatedSources)
-			SmartRez:SetBagValueInventorySources(updatedSources)
-		end,
-	})
-	local refreshTotalLabels = UI.RenderBagValueDisplay(parent, function()
-		return currentSnapshot
-	end, {
-		showPopupButton = true,
-	})
+  UI.RenderInventorySourcesGroup(parent, {
+    title = "Value Sources",
+    helpText =
+    "Choose where Smart Rez looks for bag-value items. This source selection is separate from crafting, salvage, and disenchant. Enabling warbank here will prime the profession proxy backend so warbank items can enumerate.",
+    getSources = function()
+      return SmartRez:GetBagValueInventorySources()
+    end,
+    setSources = function(updatedSources)
+      SmartRez:SetBagValueInventorySources(updatedSources)
+    end,
+  })
+  local refreshTotalLabels = UI.RenderBagValueDisplay(parent, function()
+    return currentSnapshot
+  end, {
+    showPopupButton = true,
+  })
 
-	UI.RenderIconMultiPicker(parent, {
-		title = "Tracked Auction Items",
-		helpText = "Items from the enabled source groups. Click icons to include or exclude them from the value total.",
-		summaryText = UI.Colorize("79C0FF", string.format(
-			"Available item types: %d  |  Visible quantity: %d",
-			snapshot.availableItemTypes,
-			snapshot.totalAvailableQuantity
-		)),
-		availableItemIDs = snapshot.availableItemIDs,
-		getSelectedSet = function()
-			return SmartRez:GetBagValueWhitelist()
-		end,
-		getItemCount = function(itemID)
-			local itemData = currentSnapshot.itemsByID[itemID]
-			return itemData and itemData.count or 0
-		end,
-		getIconLabel = function(itemID)
-			local itemData = currentSnapshot.itemsByID[itemID]
-			local itemCount = itemData and itemData.count or 0
-			return UI.Colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount))
-		end,
-		getSummaryText = function()
-			return UI.Colorize("79C0FF", string.format(
-				"Available item types: %d  |  Visible quantity: %d",
-				currentSnapshot.availableItemTypes,
-				currentSnapshot.totalAvailableQuantity
-			))
-		end,
-		addTooltipLines = function(tooltip, itemID, _, isSelected)
-			local itemData = currentSnapshot.itemsByID[itemID]
-			local itemCount = itemData and itemData.count or 0
-			tooltip:AddLine(" ")
-			tooltip:AddLine("Stored: " .. tostring(itemCount), 0.48, 0.75, 1)
-			if itemData and itemData.pricedQuantity > 0 then
-				if itemData.minUnitPrice and itemData.maxUnitPrice and itemData.minUnitPrice == itemData.maxUnitPrice then
-					tooltip:AddLine("Unit value: " .. UI.FormatMoney(itemData.minUnitPrice), 0.49, 0.91, 0.53)
-				else
-					tooltip:AddLine("Unit value: varies", 0.49, 0.91, 0.53)
-				end
-				tooltip:AddLine("Selected subtotal: " .. UI.FormatMoney(itemData.totalValue), 0.49, 0.91, 0.53)
-			end
-			if itemData and itemData.missingPriceQuantity > 0 then
-				tooltip:AddLine("Missing price on: " .. tostring(itemData.missingPriceQuantity), 1, 0.72, 0.4)
-			end
-			tooltip:AddLine(isSelected and "Included in total" or "Not included in total", isSelected and 0.49 or 0.49, isSelected and 0.91 or 0.52, isSelected and 0.53 or 0.56)
-		end,
-		addItemFunc = function(itemID)
-			SmartRez:AddBagValueWhitelistItem(itemID, true)
-			currentSnapshot = SmartRez:BuildBagValueSnapshot()
-			refreshTotalLabels()
-			refreshOpenBagValuePopupValue()
-		end,
-		removeItemFunc = function(itemID)
-			SmartRez:RemoveBagValueWhitelistItem(itemID, true)
-			currentSnapshot = SmartRez:BuildBagValueSnapshot()
-			refreshTotalLabels()
-			refreshOpenBagValuePopupValue()
-		end,
-		emptySelectionText = "No tracked items selected yet. Click icons to start building the total.",
-		selectedStatusTextPrefix = "Tracking ",
-		selectedStatusTextSuffix = " item(s). Click highlighted icons to remove them from the total.",
-		controlHintText = "Click icons to choose which item types count toward the total. Leaving it empty means the total stays at zero.",
-		emptyText = "No visible items matched the current source and auctionability filters.",
-	})
+  UI.RenderIconMultiPicker(parent, {
+    title = "Tracked Auction Items",
+    helpText = "Items from the enabled source groups. Click icons to include or exclude them from the value total.",
+    summaryText = UI.Colorize("79C0FF", string.format(
+      "Available item types: %d  |  Visible quantity: %d",
+      snapshot.availableItemTypes,
+      snapshot.totalAvailableQuantity
+    )),
+    availableItemIDs = snapshot.availableItemIDs,
+    getSelectedSet = function()
+      return SmartRez:GetBagValueWhitelist()
+    end,
+    getItemCount = function(itemID)
+      local itemData = currentSnapshot.itemsByID[itemID]
+      return itemData and itemData.count or 0
+    end,
+    getIconLabel = function(itemID)
+      local itemData = currentSnapshot.itemsByID[itemID]
+      local itemCount = itemData and itemData.count or 0
+      return UI.Colorize(itemCount > 0 and "79C0FF" or "7D8590", tostring(itemCount))
+    end,
+    getSummaryText = function()
+      return UI.Colorize("79C0FF", string.format(
+        "Available item types: %d  |  Visible quantity: %d",
+        currentSnapshot.availableItemTypes,
+        currentSnapshot.totalAvailableQuantity
+      ))
+    end,
+    addTooltipLines = function(tooltip, itemID, _, isSelected)
+      local itemData = currentSnapshot.itemsByID[itemID]
+      local itemCount = itemData and itemData.count or 0
+      tooltip:AddLine(" ")
+      tooltip:AddLine("Stored: " .. tostring(itemCount), 0.48, 0.75, 1)
+      if itemData and itemData.pricedQuantity > 0 then
+        if itemData.minUnitPrice and itemData.maxUnitPrice and itemData.minUnitPrice == itemData.maxUnitPrice then
+          tooltip:AddLine("Unit value: " .. UI.FormatMoney(itemData.minUnitPrice), 0.49, 0.91, 0.53)
+        else
+          tooltip:AddLine("Unit value: varies", 0.49, 0.91, 0.53)
+        end
+        tooltip:AddLine("Selected subtotal: " .. UI.FormatMoney(itemData.totalValue), 0.49, 0.91, 0.53)
+      end
+      if itemData and itemData.missingPriceQuantity > 0 then
+        tooltip:AddLine("Missing price on: " .. tostring(itemData.missingPriceQuantity), 1, 0.72, 0.4)
+      end
+      tooltip:AddLine(isSelected and "Included in total" or "Not included in total", isSelected and 0.49 or 0.49,
+        isSelected and 0.91 or 0.52, isSelected and 0.53 or 0.56)
+    end,
+    addItemFunc = function(itemID)
+      SmartRez:AddBagValueWhitelistItem(itemID, true)
+      currentSnapshot = SmartRez:BuildBagValueSnapshot()
+      refreshTotalLabels()
+      refreshOpenBagValuePopupValue()
+    end,
+    removeItemFunc = function(itemID)
+      SmartRez:RemoveBagValueWhitelistItem(itemID, true)
+      currentSnapshot = SmartRez:BuildBagValueSnapshot()
+      refreshTotalLabels()
+      refreshOpenBagValuePopupValue()
+    end,
+    emptySelectionText = "No tracked items selected yet. Click icons to start building the total.",
+    selectedStatusTextPrefix = "Tracking ",
+    selectedStatusTextSuffix = " item(s). Click highlighted icons to remove them from the total.",
+    controlHintText =
+    "Click icons to choose which item types count toward the total. Leaving it empty means the total stays at zero.",
+    emptyText = "No visible items matched the current source and auctionability filters.",
+  })
 end
