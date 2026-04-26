@@ -17,6 +17,7 @@ Core/slashCommands.lua
 Features/menuProbe.lua
 Craft/craftSalvageConfig.lua
 Features/bagValue.lua
+Features/ahSelling.lua
 Features/goldPrinterConfig.lua
 UI/uiComponents.lua
 UI/overrideBindingPopup.lua
@@ -24,6 +25,7 @@ UI/overrideBindingOptions.lua
 UI/disenchantConfigUi.lua
 UI/salvageConfigUi.lua
 UI/bagValueConfigUi.lua
+UI/ahSellingUi.lua
 UI/goldPrinterConfigUi.lua
 UI/automationConfigUi.lua
 Craft/craftSalvageCore.lua

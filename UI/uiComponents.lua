@@ -13,9 +13,39 @@ local CURSOR_BUTTON_WIDTH = 150
 local CONTROL_SPACING = 14
 local CONTROL_HINT_WIDTH = 330
 local ITEM_ICON_SIZE = 36
-local ITEM_ICON_WIDGET_SIZE = 56
+local ITEM_ICON_WIDGET_SIZE = 64
 local ITEM_ICON_BORDER_SIZE = 46
 local ITEM_QUALITY_BADGE_SIZE = 27
+
+local ICON_HIGHLIGHT_STYLES = {
+	green = {
+		label = "Green",
+		color = { 0.1, 1, 0.18, 1 },
+		size = ITEM_ICON_BORDER_SIZE + 32,
+	},
+	limeGold = {
+		label = "Lime gold",
+		color = { 0.75, 1, 0.25, 1 },
+		size = ITEM_ICON_BORDER_SIZE + 28,
+	},
+	cyan = {
+		label = "Cyan",
+		color = { 0, 0.95, 1, 1 },
+		size = ITEM_ICON_BORDER_SIZE + 32,
+	},
+	pink = {
+		label = "Pink",
+		color = { 1, 0.15, 0.85, 1 },
+		size = ITEM_ICON_BORDER_SIZE + 30,
+	},
+}
+
+local ICON_HIGHLIGHT_STYLE_LIST = {
+	green = ICON_HIGHLIGHT_STYLES.green.label,
+	limeGold = ICON_HIGHLIGHT_STYLES.limeGold.label,
+	cyan = ICON_HIGHLIGHT_STYLES.cyan.label,
+	pink = ICON_HIGHLIGHT_STYLES.pink.label,
+}
 
 function UI.Colorize(hexColor, text)
 	return string.format("|cff%s%s|r", hexColor, tostring(text))
@@ -59,6 +89,41 @@ function UI.GetItemSetCount(itemSet)
 	return count
 end
 
+function UI.GetIconWhitelistHighlightStyle()
+	SmartRez:EnsureConfig()
+	if type(SmartRez.db.ui) ~= "table" then
+		SmartRez.db.ui = {}
+	end
+
+	local styleKey = SmartRez.db.ui.iconWhitelistHighlightStyle
+	if styleKey == "strongGreen" then
+		styleKey = "green"
+	end
+	if not ICON_HIGHLIGHT_STYLES[styleKey] then
+		styleKey = "green"
+		SmartRez.db.ui.iconWhitelistHighlightStyle = styleKey
+	end
+	return styleKey
+end
+
+function UI.SetIconWhitelistHighlightStyle(styleKey)
+	SmartRez:EnsureConfig()
+	if type(SmartRez.db.ui) ~= "table" then
+		SmartRez.db.ui = {}
+	end
+	if styleKey == "strongGreen" then
+		styleKey = "green"
+	end
+	SmartRez.db.ui.iconWhitelistHighlightStyle = ICON_HIGHLIGHT_STYLES[styleKey] and styleKey or "green"
+	if SmartRez.RefreshViews then
+		SmartRez:RefreshViews()
+	end
+end
+
+function UI.GetIconWhitelistHighlightStyleList()
+	return ICON_HIGHLIGHT_STYLE_LIST
+end
+
 function UI.MergeAvailableAndSelectedItemIDs(availableItemIDs, selectedSet)
 	local mergedItemIDs = {}
 	local seen = {}
@@ -90,6 +155,25 @@ function UI.FormatMoney(value)
 	end
 
 	return string.format("%ds", silver)
+end
+
+function UI.ColorizeMoneySuffixes(text)
+	local formattedText = tostring(text or "")
+		:gsub("g", UI.Colorize("FFD866", "g"))
+		:gsub("s", UI.Colorize("C0C0C0", "s"))
+	return formattedText
+end
+
+function UI.FormatMoneyColored(value, numberColor)
+	numberColor = numberColor or "FFFFFF"
+	local formattedText = UI.FormatMoney(value)
+		:gsub("(%d+)(g)", function(amount, suffix)
+			return UI.Colorize(numberColor, amount) .. UI.Colorize("FFD866", suffix)
+		end)
+		:gsub("(%d+)(s)", function(amount, suffix)
+			return UI.Colorize(numberColor, amount) .. UI.Colorize("C0C0C0", suffix)
+		end)
+	return formattedText
 end
 
 function UI.FormatMoneyDelta(value)
@@ -273,7 +357,9 @@ local function updateFilterIconChrome(icon, reagentQuality, useMidnightIcon, isS
 	end
 
 	if isSelected then
-		icon.selectionGlow:SetVertexColor(0.45, 0.95, 0.55, 1)
+		local style = ICON_HIGHLIGHT_STYLES[UI.GetIconWhitelistHighlightStyle()] or ICON_HIGHLIGHT_STYLES.green
+		icon.selectionGlow:SetSize(style.size, style.size)
+		icon.selectionGlow:SetVertexColor(style.color[1], style.color[2], style.color[3], style.color[4])
 		icon.selectionGlow:Show()
 	else
 		icon.selectionGlow:Hide()
@@ -393,34 +479,33 @@ function UI.RenderInventorySourcesGroup(parent, config)
 	group:AddChild(warbankCheck)
 end
 
+local function captureIconPickerScrollStatus()
+	if SmartRez.CaptureAutomationConfigScrollStatus then
+		SmartRez:CaptureAutomationConfigScrollStatus()
+	end
+	if SmartRez.CaptureAHSellingScrollStatus then
+		SmartRez:CaptureAHSellingScrollStatus()
+	end
+end
+
 ---@param parent AceGUIContainer
 function UI.RenderIconMultiPicker(parent, config)
 	local group = UI.CreateCard(parent, config.title)
 
 	UI.AddLabel(group, config.helpText, "A5D6FF")
 
-	local summary
-	if config.summaryText then
-		summary = UI.AddLabel(group, config.summaryText)
-	end
-
 	local selectedSet = config.getSelectedSet() or {}
 	local displayItemIDs = UI.MergeAvailableAndSelectedItemIDs(config.availableItemIDs, selectedSet)
-	local selectedCount = UI.GetItemSetCount(selectedSet)
 	local useMidnightQualityIcons = shouldUseMidnightQualityIcons(displayItemIDs)
 
 	local statusLabel = AceGUI:Create("Label")
 	statusLabel:SetFullWidth(true)
-	local function updateStatusLabel()
-		selectedSet = config.getSelectedSet()
-		selectedCount = UI.GetItemSetCount(selectedSet)
-		statusLabel:SetText(UI.Colorize(
-			"7D8590",
-			selectedCount == 0 and (config.emptySelectionText or "No whitelist entries. Click icons to build one, or leave it empty.")
-				or ((config.selectedStatusTextPrefix or "Selected ") .. tostring(selectedCount) .. (config.selectedStatusTextSuffix or " item(s). Click highlighted icons to remove them."))
-		))
+	local function updateConfiguredCountLabel()
+		selectedSet = config.getSelectedSet() or {}
+		local countLabel = config.configuredCountLabel or "Configured items"
+		statusLabel:SetText(UI.Colorize("7D8590", countLabel .. ": " .. tostring(UI.GetItemSetCount(selectedSet))))
 	end
-	updateStatusLabel()
+	updateConfiguredCountLabel()
 	group:AddChild(statusLabel)
 
 	local controlRow = AceGUI:Create("SimpleGroup")
@@ -429,9 +514,21 @@ function UI.RenderIconMultiPicker(parent, config)
 	group:AddChild(controlRow)
 
 	local controlHint = AceGUI:Create("Label")
-	controlHint:SetWidth(CONTROL_HINT_WIDTH + 120)
+	controlHint:SetWidth(CONTROL_HINT_WIDTH)
 	controlHint:SetText(UI.Colorize("7D8590", config.controlHintText or "Click icons to toggle the whitelist. Leaving it empty means no whitelist restriction."))
 	controlRow:AddChild(controlHint)
+
+	controlRow:AddChild(UI.CreateHorizontalSpacer(56))
+
+	local highlightDropdown = AceGUI:Create("Dropdown")
+	highlightDropdown:SetWidth(170)
+	highlightDropdown:SetLabel("Selected border")
+	highlightDropdown:SetList(UI.GetIconWhitelistHighlightStyleList())
+	highlightDropdown:SetValue(UI.GetIconWhitelistHighlightStyle())
+	highlightDropdown:SetCallback("OnValueChanged", function(_, _, value)
+		UI.SetIconWhitelistHighlightStyle(value)
+	end)
+	controlRow:AddChild(highlightDropdown)
 
 	UI.AddSectionSpacer(group)
 
@@ -476,10 +573,7 @@ function UI.RenderIconMultiPicker(parent, config)
 			end
 
 			updateFilterIconChrome(icon, reagentQuality, useMidnightQualityIcons, isSelected)
-			updateStatusLabel()
-			if summary and config.getSummaryText then
-				summary:SetText(config.getSummaryText())
-			end
+			updateConfiguredCountLabel()
 		end
 		local function updateIconInventoryState()
 			itemCount = config.getItemCount and config.getItemCount(itemID) or SmartRez:GetBagItemCount(itemID)
@@ -495,11 +589,9 @@ function UI.RenderIconMultiPicker(parent, config)
 					icon.image:SetVertexColor(0.65, 0.65, 0.65, 0.85)
 				end
 			end
-			if summary and config.getSummaryText then
-				summary:SetText(config.getSummaryText())
-			end
 		end
 		icon:SetCallback("OnClick", function()
+			captureIconPickerScrollStatus()
 			if isExplicitlySelected then
 				config.removeItemFunc(itemID)
 			else

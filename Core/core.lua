@@ -55,6 +55,15 @@ SmartRez.dbDefaults = {
 		},
 		whitelist = {},
 	},
+	ahSelling = {
+		whitelist = {},
+		items = {},
+		order = {},
+		scanCursor = 1,
+	},
+	ui = {
+		iconWhitelistHighlightStyle = "green",
+	},
 	professionProxy = {
 		visible = true,
 		point = {

@@ -34,6 +34,7 @@ end
 local function buildAutomationTabs()
 	local tabs = {
 		{ text = "Gold Printer", value = "goldprinter" },
+		{ text = "AH Selling", value = "ahselling" },
 		{ text = "Bag Value", value = "bagvalue" },
 	}
 
@@ -48,7 +49,7 @@ local function buildAutomationTabs()
 end
 
 local function isAutomationTabAvailable(groupValue)
-	if groupValue == "goldprinter" or groupValue == "bagvalue" then
+	if groupValue == "goldprinter" or groupValue == "bagvalue" or groupValue == "ahselling" then
 		return true
 	end
 
@@ -111,6 +112,20 @@ function SmartRez:CaptureAutomationConfigScrollStatus()
 	end
 end
 
+function SmartRez:RefreshAutomationConfigTab(groupValue, preserveCapturedScroll)
+	if not (automationConfigFrame and automationConfigFrame:IsShown()) then
+		return
+	end
+
+	if groupValue and automationConfigFrame.selectedGroup ~= groupValue then
+		return
+	end
+
+	captureAutomationScrollStatus(automationConfigFrame.selectedGroup)
+	automationConfigFrame.forceFullTabRender = preserveCapturedScroll ~= true
+	automationConfigFrame:Refresh("config")
+end
+
 function SmartRez:RegisterAutomationConfigInventoryRefresher(callback)
 	if not automationConfigFrame or type(callback) ~= "function" then
 		return
@@ -159,6 +174,7 @@ local function restoreAutomationScrollStatus(scroll, groupValue, snapshot)
 				scroll:SetScroll(status.scrollvalue or 0)
 			end
 		end)
+		C_Timer.After(0.3, apply)
 	end
 end
 
@@ -166,6 +182,8 @@ end
 local function renderSelectedAutomationTab(scroll, groupValue)
 	if groupValue == "goldprinter" then
 		UI.RenderGoldPrinterTab(scroll)
+	elseif groupValue == "ahselling" then
+		UI.RenderAHSellingTab(scroll)
 	elseif groupValue == "bagvalue" then
 		UI.RenderBagValueTab(scroll)
 	else
@@ -267,8 +285,10 @@ local function createAutomationConfigWindow()
 
 		self.selectedGroup = selectedGroup
 		local aceSelectedGroup = getSelectedAutomationTab()
+		local preserveScroll = self.forceFullTabRender ~= true
+		self.forceFullTabRender = nil
 		if aceSelectedGroup == selectedGroup then
-			renderAutomationGroup(self.tabs, selectedGroup, true)
+			renderAutomationGroup(self.tabs, selectedGroup, preserveScroll)
 		else
 			self.tabs:SelectTab(selectedGroup)
 		end
