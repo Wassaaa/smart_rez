@@ -43,19 +43,6 @@ local function refreshViews()
 	end
 end
 
-local function trim(text)
-	if type(text) ~= "string" then
-		return nil
-	end
-
-	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-	text = text:match("^%s*(.-)%s*$")
-	if text == "" then
-		return nil
-	end
-	return text
-end
-
 local function ensureAHSellingConfig()
 	SmartRez:EnsureConfig()
 
@@ -149,114 +136,10 @@ local function ensureItemConfig(itemID)
 
 	local itemConfig = config.items[itemID]
 	itemConfig.stackSize = math.max(1, math.floor(tonumber(itemConfig.stackSize) or DEFAULT_STACK_SIZE))
-	itemConfig.minPriceExpression = trim(itemConfig.minPriceExpression)
-		or trim(itemConfig.minPriceType == "tsm" and itemConfig.tsmMinPriceSource or itemConfig.fixedMinPriceText)
+	itemConfig.minPriceExpression = SmartRez:TrimAHText(itemConfig.minPriceExpression)
+		or SmartRez:TrimAHText(itemConfig.minPriceType == "tsm" and itemConfig.tsmMinPriceSource or itemConfig.fixedMinPriceText)
 		or DEFAULT_MIN_PRICE_TEXT
 	return itemConfig
-end
-
-local function parseMoneyText(text)
-	text = trim(text)
-	if not text then
-		return nil
-	end
-
-	local lowerText = text:lower():gsub(",", ""):gsub("%s+", "")
-	local goldText = lowerText:match("(%d+)g")
-	local silverText = lowerText:match("(%d+)s")
-
-	if not goldText and not silverText then
-		return nil
-	end
-
-	local gold = tonumber(goldText) or 0
-	local silver = tonumber(silverText) or 0
-	return math.max(0, math.floor(gold) * 10000 + math.floor(silver) * 100)
-end
-
-local function getItemString(itemLink, itemID)
-	local TSM_API = _G.TSM_API
-	if not (TSM_API and TSM_API.ToItemString) then
-		return nil
-	end
-
-	local ok, itemString = pcall(TSM_API.ToItemString, itemLink or ("item:" .. tostring(itemID)))
-	if ok and type(itemString) == "string" and itemString ~= "" then
-		return itemString
-	end
-end
-
-local function getTSMPrice(source, itemLink, itemID)
-	local TSM_API = _G.TSM_API
-	source = trim(source)
-	if not (source and TSM_API and TSM_API.GetCustomPriceValue) then
-		return nil, "not a fixed gold/silver price, and TSM custom prices are unavailable"
-	end
-
-	if TSM_API.IsCustomPriceValid then
-		local ok, isValid, err = pcall(TSM_API.IsCustomPriceValid, source)
-		if ok and isValid == false then
-			return nil, err or "invalid TSM custom price"
-		end
-	end
-
-	local itemString = getItemString(itemLink, itemID)
-	if not itemString then
-		return nil, "TSM item string could not be built"
-	end
-
-	local ok, value = pcall(TSM_API.GetCustomPriceValue, source, itemString)
-	if ok and type(value) == "number" and value >= 0 then
-		return math.floor(value)
-	end
-
-	return nil, "TSM custom price did not resolve"
-end
-
-local function formatMoneyText(value)
-	value = math.max(0, math.floor(tonumber(value) or 0))
-	local gold = math.floor(value / 10000)
-	local silver = math.floor((value % 10000) / 100)
-	if gold > 0 then
-		if silver > 0 then
-			return string.format("%dg%ds", gold, silver)
-		end
-		return string.format("%dg", gold)
-	end
-	return string.format("%ds", silver)
-end
-
-local function normalizeMinPriceExpression(expression)
-	expression = trim(expression)
-	if not expression then
-		return DEFAULT_MIN_PRICE_TEXT
-	end
-
-	local fixedPrice = parseMoneyText(expression)
-	if fixedPrice then
-		return formatMoneyText(fixedPrice)
-	end
-	return expression
-end
-
-local function getDefaultMinPriceExpression(itemLink, itemID)
-	local recentPrice = getTSMPrice("DBRecent", itemLink, itemID)
-	if recentPrice and recentPrice > 0 then
-		return formatMoneyText(recentPrice)
-	end
-	return DEFAULT_MIN_PRICE_TEXT
-end
-
-local function getItemLinkFromLocation(location, itemID)
-	if location and C_Item and C_Item.GetItemLink then
-		local itemLink = C_Item.GetItemLink(location)
-		if itemLink then
-			return itemLink
-		end
-	end
-
-	local _, itemLink = C_Item.GetItemInfo(itemID)
-	return itemLink
 end
 
 local function line(...)
@@ -697,7 +580,7 @@ function SmartRez:AddAHSellingWhitelistItem(itemID, skipRefresh)
 	addOrderedAHSellingItem(config, itemID)
 	local itemConfig = ensureItemConfig(itemID)
 	if itemConfig.minPriceExpression == DEFAULT_MIN_PRICE_TEXT then
-		itemConfig.minPriceExpression = getDefaultMinPriceExpression(nil, itemID)
+		itemConfig.minPriceExpression = SmartRez:GetAHDefaultPriceExpression(nil, itemID, DEFAULT_MIN_PRICE_TEXT)
 	end
 	if not skipRefresh then
 		refreshViews()
@@ -720,7 +603,7 @@ function SmartRez:SetAHSellingItemConfigValue(itemID, key, value, skipRefresh)
 	if key == "stackSize" then
 		itemConfig[key] = math.max(1, math.floor(tonumber(value) or itemConfig[key] or 1))
 	elseif key == "minPriceExpression" then
-		itemConfig.minPriceExpression = normalizeMinPriceExpression(value)
+		itemConfig.minPriceExpression = SmartRez:NormalizeAHPriceExpression(value, DEFAULT_MIN_PRICE_TEXT)
 	end
 
 	if not skipRefresh then
@@ -780,7 +663,7 @@ function SmartRez:BuildAHSellingSnapshot()
 		if not entry then
 			entry = {
 				itemID = itemID,
-				itemLink = getItemLinkFromLocation(location, itemID),
+				itemLink = self:GetAHItemLinkFromLocation(location, itemID),
 				itemIcon = itemInfo.iconFileID,
 				count = 0,
 				firstBag = bag,
@@ -811,21 +694,11 @@ end
 
 function SmartRez:GetAHSellingItemMinPrice(itemID, itemLink)
 	local itemConfig = ensureItemConfig(itemID)
-	local expression = itemConfig.minPriceExpression
-	local fixedPrice = parseMoneyText(expression)
-	if fixedPrice then
-		return fixedPrice
-	end
-	return getTSMPrice(expression, itemLink, itemID)
+	return self:GetAHPriceExpressionValue(itemConfig.minPriceExpression, itemLink, itemID)
 end
 
 function SmartRez:GetAHSellingMinPriceDisplayText(expression)
-	expression = normalizeMinPriceExpression(expression)
-	if not parseMoneyText(expression) then
-		return expression
-	end
-
-	return SmartRez.UI.ColorizeMoneySuffixes(expression)
+	return self:GetAHPriceDisplayText(expression)
 end
 
 function SmartRez:GetAHSellingLatestScanDisplayText(itemID)

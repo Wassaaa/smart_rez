@@ -1,10 +1,6 @@
-## Interface: 120001,50503,40402,38000,30405,20505,11508
+## Interface: 120005
 ## Title: smart_rez
-## Dependencies: Auctionator
 ## OptionalDeps: TradeSkillMaster
-## SavedVariables: PriceMemory
-## SavedVariables: QuantityMemory
-## SavedVariables: BaitMemory
 ## SavedVariables: SmartRezLowModeDB
 ## SavedVariablesPerCharacter: SmartRezDB
 embeds.xml
@@ -12,12 +8,14 @@ Core/core.lua
 Core/playerBagRestack.lua
 Core/craftCore.lua
 Core/professionProxy.lua
+Core/ahShared.lua
 Core/overrideBindings.lua
 Core/slashCommands.lua
 Features/menuProbe.lua
 Craft/craftSalvageConfig.lua
 Features/bagValue.lua
 Features/ahSelling.lua
+Features/ahSniper.lua
 Features/goldPrinterConfig.lua
 UI/uiComponents.lua
 UI/overrideBindingPopup.lua
@@ -26,6 +24,7 @@ UI/disenchantConfigUi.lua
 UI/salvageConfigUi.lua
 UI/bagValueConfigUi.lua
 UI/ahSellingUi.lua
+UI/ahSniperUi.lua
 UI/goldPrinterConfigUi.lua
 UI/automationConfigUi.lua
 Craft/craftSalvageCore.lua
@@ -35,6 +34,5 @@ Features/warbankGrab.lua
 Craft/salvageActions.lua
 Features/goldPrinter.lua
 Features/recipeCrafts.lua
-Integrations/snipeAuctionator.lua
 Integrations/tsmLabelClick.lua
 Features/lowmode.lua

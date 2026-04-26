@@ -35,6 +35,7 @@ local function buildAutomationTabs()
 	local tabs = {
 		{ text = "Gold Printer", value = "goldprinter" },
 		{ text = "AH Selling", value = "ahselling" },
+		{ text = "AH Sniper", value = "ahsniper" },
 		{ text = "Bag Value", value = "bagvalue" },
 	}
 
@@ -49,7 +50,7 @@ local function buildAutomationTabs()
 end
 
 local function isAutomationTabAvailable(groupValue)
-	if groupValue == "goldprinter" or groupValue == "bagvalue" or groupValue == "ahselling" then
+	if groupValue == "goldprinter" or groupValue == "bagvalue" or groupValue == "ahselling" or groupValue == "ahsniper" then
 		return true
 	end
 
@@ -184,6 +185,8 @@ local function renderSelectedAutomationTab(scroll, groupValue)
 		UI.RenderGoldPrinterTab(scroll)
 	elseif groupValue == "ahselling" then
 		UI.RenderAHSellingTab(scroll)
+	elseif groupValue == "ahsniper" then
+		UI.RenderAHSniperTab(scroll)
 	elseif groupValue == "bagvalue" then
 		UI.RenderBagValueTab(scroll)
 	else

@@ -107,34 +107,40 @@ local function mutateAHSellingConfig(callback)
 	refreshSellConfigSurfaces(true, sellScrollSnapshot)
 end
 
+local function addTinyLabel(group, text, width, color)
+	local label = AceGUI:Create("Label")
+	label:SetWidth(width or 48)
+	label:SetText(UI.Colorize(color or "7D8590", text))
+	group:AddChild(label)
+	return label
+end
+
+local function addCompactEdit(group, width, value, onEnter)
+	local editBox = AceGUI:Create("EditBox")
+	editBox:SetWidth(width)
+	editBox:SetText(tostring(value or ""))
+	editBox:DisableButton(true)
+	editBox:SetCallback("OnEnterPressed", function(_, _, enteredValue)
+		onEnter(enteredValue)
+	end)
+	group:AddChild(editBox)
+	return editBox
+end
+
 local function renderItemConfig(parent, snapshot, itemID)
 	local itemData = snapshot.itemsByID[itemID] or {}
 	local itemConfig = SmartRez:GetAHSellingItemConfig(itemID)
 	local itemName = itemData.itemLink or UI.GetItemDisplay(itemID)
-	local group = AceGUI:Create("SimpleGroup")
-	group:SetFullWidth(true)
-	group:SetLayout("Flow")
-	parent:AddChild(group)
 
-	local function addTinyLabel(text, width)
-		local label = AceGUI:Create("Label")
-		label:SetWidth(width or 28)
-		label:SetText(UI.Colorize("7D8590", text))
-		group:AddChild(label)
-		return label
-	end
+	local itemGroup = AceGUI:Create("SimpleGroup")
+	itemGroup:SetFullWidth(true)
+	itemGroup:SetLayout("List")
+	parent:AddChild(itemGroup)
 
-	local function addCompactEdit(width, value, onEnter)
-		local editBox = AceGUI:Create("EditBox")
-		editBox:SetWidth(width)
-		editBox:SetText(tostring(value or ""))
-		editBox:DisableButton(true)
-		editBox:SetCallback("OnEnterPressed", function(_, _, enteredValue)
-			onEnter(enteredValue)
-		end)
-		group:AddChild(editBox)
-		return editBox
-	end
+	local titleRow = AceGUI:Create("SimpleGroup")
+	titleRow:SetFullWidth(true)
+	titleRow:SetLayout("Flow")
+	itemGroup:AddChild(titleRow)
 
 	local itemLabel = AceGUI:Create("Label")
 	itemLabel:SetWidth(270)
@@ -143,31 +149,37 @@ local function renderItemConfig(parent, snapshot, itemID)
 		itemName,
 		UI.Colorize("79C0FF", "x" .. tostring(itemData.count or 0))
 	))
-	group:AddChild(itemLabel)
+	titleRow:AddChild(itemLabel)
 
-	addTinyLabel("Stack", 40)
-	addCompactEdit(44, itemConfig.stackSize or 1, function(value)
+	local latestScanText = SmartRez:GetAHSellingLatestScanDisplayText(itemID)
+	if latestScanText and latestScanText ~= "" then
+		local latestLabel = AceGUI:Create("Label")
+		latestLabel:SetWidth(100)
+		latestLabel:SetText(latestScanText)
+		titleRow:AddChild(latestLabel)
+	end
+
+	local configRow = AceGUI:Create("SimpleGroup")
+	configRow:SetFullWidth(true)
+	configRow:SetLayout("Flow")
+	itemGroup:AddChild(configRow)
+
+	addTinyLabel(configRow, "Stack", 52)
+	addCompactEdit(configRow, 44, itemConfig.stackSize or 1, function(value)
 		mutateAHSellingConfig(function()
 			SmartRez:SetAHSellingItemConfigValue(itemID, "stackSize", value, true)
 		end)
 	end)
 
-	group:AddChild(UI.CreateHorizontalSpacer(4))
-	addTinyLabel("Min", 30)
-	addCompactEdit(120, SmartRez:GetAHSellingMinPriceDisplayText(itemConfig.minPriceExpression), function(value)
+	configRow:AddChild(UI.CreateHorizontalSpacer(8))
+	addTinyLabel(configRow, "Min", 42)
+	addCompactEdit(configRow, 120, SmartRez:GetAHSellingMinPriceDisplayText(itemConfig.minPriceExpression), function(value)
 		mutateAHSellingConfig(function()
 			SmartRez:SetAHSellingItemConfigValue(itemID, "minPriceExpression", value, true)
 		end)
 	end)
 
-	local latestScanText = SmartRez:GetAHSellingLatestScanDisplayText(itemID)
-	if latestScanText and latestScanText ~= "" then
-		group:AddChild(UI.CreateHorizontalSpacer(6))
-		local latestLabel = AceGUI:Create("Label")
-		latestLabel:SetWidth(80)
-		latestLabel:SetText(latestScanText)
-		group:AddChild(latestLabel)
-	end
+	UI.AddSectionSpacer(itemGroup)
 end
 
 ---@param parent AceGUIContainer

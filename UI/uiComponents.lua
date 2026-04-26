@@ -486,6 +486,9 @@ local function captureIconPickerScrollStatus()
 	if SmartRez.CaptureAHSellingScrollStatus then
 		SmartRez:CaptureAHSellingScrollStatus()
 	end
+	if SmartRez.CaptureAHSniperScrollStatus then
+		SmartRez:CaptureAHSniperScrollStatus()
+	end
 end
 
 ---@param parent AceGUIContainer

@@ -61,6 +61,12 @@ SmartRez.dbDefaults = {
 		order = {},
 		scanCursor = 1,
 	},
+	ahSniper = {
+		whitelist = {},
+		items = {},
+		order = {},
+		scanCursor = 1,
+	},
 	ui = {
 		iconWhitelistHighlightStyle = "green",
 	},
