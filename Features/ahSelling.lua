@@ -535,6 +535,26 @@ local function executePreparedPost()
   return true
 end
 
+local function isPlayerCommodityResult(result)
+  if not result then
+    return false
+  end
+
+  if result.containsOwnerItem == true then
+    return true
+  end
+
+  if type(result.owners) == "table" then
+    for _, owner in ipairs(result.owners) do
+      if owner == "player" then
+        return true
+      end
+    end
+  end
+
+  return false
+end
+
 local function findCommodityPostCandidate(itemID, minPrice)
   local normalizedMin = normalizePostPrice(minPrice)
   if not normalizedMin then
@@ -557,11 +577,35 @@ local function findCommodityPostCandidate(itemID, minPrice)
     return normalizedMin, false, 0, nil, nil, "min"
   end
 
-  local firstIsPlayer = first.containsOwnerItem == true
-      and first.owners
-      and first.owners[1] == "player"
+  local candidatePrice = firstPrice
+  local candidateResult = first
+  local candidateIndex = 1
+  local playerQuantityAtCandidate = 0
+  local marketQuantityAtCandidate = 0
 
-  return firstPrice, firstIsPlayer, first.quantity or 0, first, 1, "lowest"
+  for index = 1, resultCount do
+    local result = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, index)
+    local unitPrice = result and normalizePostPrice(result.unitPrice) or nil
+
+    if unitPrice == candidatePrice then
+      local quantity = math.max(0, math.floor(tonumber(result.quantity) or 0))
+      marketQuantityAtCandidate = marketQuantityAtCandidate + quantity
+
+      if isPlayerCommodityResult(result) then
+        playerQuantityAtCandidate = playerQuantityAtCandidate + quantity
+      end
+    elseif unitPrice and unitPrice > candidatePrice then
+      break
+    end
+  end
+
+  return candidatePrice,
+      playerQuantityAtCandidate > 0,
+      playerQuantityAtCandidate,
+      candidateResult,
+      candidateIndex,
+      "lowest",
+      marketQuantityAtCandidate
 end
 
 local function processCommodityScan(itemID)
@@ -588,7 +632,7 @@ local function processCommodityScan(itemID)
     )
   end
 
-  local candidatePrice, candidateIsPlayer, candidateQuantity, candidateResult, candidateIndex, candidateReason =
+  local candidatePrice, candidateIsPlayer, candidateQuantity, candidateResult, candidateIndex, candidateReason, marketQuantity =
       findCommodityPostCandidate(itemID, activeScan.minPrice)
 
   recordLatestScan(itemID, candidatePrice or firstPrice, activeScan.minPrice)
@@ -625,8 +669,10 @@ local function processCommodityScan(itemID)
       tostring(candidateIndex),
       "unit",
       tostring(candidatePrice),
-      "qty",
-      tostring(candidateQuantity),
+      "playerQty",
+      tostring(candidateQuantity or 0),
+      "marketQty",
+      tostring(marketQuantity or 0),
       "owner",
       candidateIsPlayer and "player" or tostring(candidateResult.owners and candidateResult.owners[1])
     )
