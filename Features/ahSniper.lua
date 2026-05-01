@@ -72,6 +72,13 @@ local function refreshViews()
 	end
 end
 
+local function actionResult(status, consumedThrottle)
+	return {
+		status = status,
+		consumedThrottle = consumedThrottle == true,
+	}
+end
+
 local function ensureAHSniperConfig()
 	SmartRez:EnsureConfig()
 	if type(SmartRez.db.ahSniper) ~= "table" then
@@ -214,7 +221,7 @@ local function startBuyRequest(buy, source)
 	local ready, reason = SmartRez:IsAHReady()
 	if not ready then
 		debugLine("blocked buy", reason)
-		return true
+		return actionResult("blocked")
 	end
 
 	ensureEvents()
@@ -231,36 +238,36 @@ local function startBuyRequest(buy, source)
 	if not ok then
 		actionLine(buy.itemLink or ("item:" .. tostring(buy.itemID)), "FF7B72", "buy failed", tostring(err))
 		pendingBuy = nil
-		return true
+		return actionResult("failed")
 	end
 
 	debugLine("purchase quote requested", buy.itemLink or ("item:" .. tostring(buy.itemID)), source or "direct", "x" .. tostring(buy.quantity), "cap", SmartRez.UI.FormatMoney(buy.maxUnitPrice))
-	return true
+	return actionResult("startedBuy", true)
 end
 
 local function tryPostBait(candidate)
 	ensureEvents()
 	local baitStackSize = math.max(0, math.floor(tonumber(candidate.baitStackSize) or 0))
 	if baitStackSize <= 0 then
-		return false
+		return nil
 	end
 
 	local now = GetTime and GetTime() or 0
 	local interval = math.max(1, math.floor(tonumber(candidate.baitIntervalSeconds) or DEFAULT_BAIT_INTERVAL_SECONDS))
 	if (lastBaitByItemID[candidate.itemID] or 0) + interval > now then
-		return false
+		return nil
 	end
 
 	local location = SmartRez:FindAHBagLocation(candidate.itemID)
 	if not location then
 		debugLine("bait skipped no bag item", candidate.itemLink or ("item:" .. tostring(candidate.itemID)))
-		return false
+		return nil
 	end
 
 	local ok, err = pcall(C_AuctionHouse.PostCommodity, location, DEFAULT_AUCTION_DURATION, baitStackSize, candidate.baitPrice)
 	if not ok then
 		actionLine(candidate.itemLink or ("item:" .. tostring(candidate.itemID)), "FF7B72", "bait failed", tostring(err))
-		return true
+		return actionResult("failed")
 	end
 
 	pendingBait = {
@@ -272,7 +279,7 @@ local function tryPostBait(candidate)
 	}
 	lastBaitByItemID[candidate.itemID] = now
 	debugLine("bait sent", candidate.itemLink or ("item:" .. tostring(candidate.itemID)), "x" .. tostring(baitStackSize), SmartRez.UI.FormatMoney(candidate.baitPrice))
-	return true
+	return actionResult("postedBait", true)
 end
 
 local function processBuyPriceUpdated(unitPrice, totalPrice)
@@ -320,14 +327,12 @@ local function getCandidate()
 		return nil
 	end
 
-	local snapshot = SmartRez:BuildAHPlayerBagSnapshot()
 	local startIndex = math.min(math.max(1, config.scanCursor or 1), #orderedItemIDs)
 	for offset = 0, #orderedItemIDs - 1 do
 		local index = ((startIndex + offset - 1) % #orderedItemIDs) + 1
 		local itemID = orderedItemIDs[index]
 		local itemConfig = ensureItemConfig(itemID)
-		local itemData = snapshot.itemsByID[itemID] or {}
-		local itemLink = itemData.itemLink or select(2, C_Item.GetItemInfo(itemID)) or ("item:" .. tostring(itemID))
+		local itemLink = select(2, C_Item.GetItemInfo(itemID)) or ("item:" .. tostring(itemID))
 		local buyPrice, buyPriceError = SmartRez:GetAHPriceExpressionValue(itemConfig.buyPriceExpression, itemLink, itemID)
 		local baitPrice, baitPriceError = SmartRez:GetAHPriceExpressionValue(itemConfig.baitPriceExpression, itemLink, itemID)
 		local candidate = {
@@ -431,38 +436,47 @@ function SmartRez:GetAHSniperLatestScanDisplayText(itemID)
 	return money(scan.averageUnitPrice, scan.buyable and "7EE787" or "FF7B72")
 end
 
+function SmartRez:HasAHSniperPendingAction()
+	return hasPendingBuyLock() or hasPendingBaitLock()
+end
+
+function SmartRez:HasAHSniperConfiguredWork()
+	return #ensureAHSniperConfig().order > 0
+end
+
 function SmartRez:RunAHSniperNextAction()
 	if hasPendingBuyLock() then
 		debugLine("blocked purchase pending")
-		return
+		return actionResult("pending")
 	end
 	if hasPendingBaitLock() then
 		debugLine("blocked bait pending")
-		return
+		return actionResult("pending")
 	end
 
 	local ready, reason = SmartRez:IsAHReady()
 	if not ready then
 		debugLine("blocked", reason)
-		return
+		return actionResult("blocked")
 	end
 
 	local candidate = getCandidate()
 	if not candidate then
 		actionLine("AH Sniper", "FF7B72", "no items configured")
-		return
+		return actionResult("noWork")
 	end
 
-	if candidate.baitPrice and tryPostBait(candidate) then
-		return
+	local baitResult = candidate.baitPrice and tryPostBait(candidate) or nil
+	if baitResult then
+		return baitResult
 	end
 
 	if not candidate.buyPrice then
 		debugLine("buy skipped price error", candidate.itemLink or ("item:" .. tostring(candidate.itemID)), tostring(candidate.buyPriceError))
-		return
+		return actionResult("blocked")
 	end
 
-	startBuyRequest(buildBuyRequest(candidate), "direct")
+	return startBuyRequest(buildBuyRequest(candidate), "direct")
 end
 
 local function isActiveClickPhase(down)

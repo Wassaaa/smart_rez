@@ -43,6 +43,13 @@ local function refreshViews()
   end
 end
 
+local function actionResult(status, consumedThrottle)
+  return {
+    status = status,
+    consumedThrottle = consumedThrottle == true,
+  }
+end
+
 local function ensureAHSellingConfig()
   SmartRez:EnsureConfig()
 
@@ -93,6 +100,7 @@ local function ensureAHSellingConfig()
   if #config.order > 0 and config.scanCursor > #config.order then
     config.scanCursor = 1
   end
+  config.buyActionsPerSell = math.max(1, math.floor(tonumber(config.buyActionsPerSell) or 5))
 
   return config
 end
@@ -402,7 +410,18 @@ end
 
 local function executePreparedPost()
   if not preparedPost then
-    return false
+    return nil
+  end
+
+  if pendingPost then
+    debugLine("blocked post", "post already pending")
+    return actionResult("pending")
+  end
+
+  local ready, reason = getAuctionHouseReady()
+  if not ready then
+    debugLine("blocked post", reason)
+    return actionResult("blocked")
   end
 
   local post = preparedPost
@@ -420,7 +439,7 @@ local function executePreparedPost()
   if not location then
     line(post.itemLink or ("item:" .. tostring(post.itemID)), "post failed", "item no longer found in bags")
     preparedPost = nil
-    return true
+    return actionResult("failed")
   end
 
   local currentItemInfo = bag and slot and C_Container.GetContainerItemInfo(bag, slot) or nil
@@ -430,7 +449,7 @@ local function executePreparedPost()
   if spendableStackCount <= 0 then
     line(post.itemLink or ("item:" .. tostring(post.itemID)), "post failed", "keep-in-bags reserve reached")
     preparedPost = nil
-    return true
+    return actionResult("failed")
   end
 
   local postQuantity = math.min(post.quantity, spendableStackCount)
@@ -469,7 +488,7 @@ local function executePreparedPost()
     line(post.itemLink or ("item:" .. tostring(post.itemID)), "post failed", tostring(needsConfirmationOrError))
     pendingPost = nil
     preparedPost = nil
-    return true
+    return actionResult("failed")
   end
 
   debugLine("post call returned", tostring(needsConfirmationOrError), post.isCommodity and "PostCommodity" or "PostItem")
@@ -545,7 +564,7 @@ local function executePreparedPost()
   end
 
   preparedPost = nil
-  return true
+  return actionResult("posted", true)
 end
 
 local function isPlayerCommodityResult(result)
@@ -874,28 +893,43 @@ function SmartRez:RemoveAHSellingWhitelistItem(itemID, skipRefresh)
 end
 
 function SmartRez:SetAHSellingItemConfigValue(itemID, key, value, skipRefresh)
-  local itemConfig = ensureItemConfig(itemID)
+  if key == "buyActionsPerSell" then
+    self:SetAHSellingBuyActionsPerSell(value, true)
+  else
+    local itemConfig = ensureItemConfig(itemID)
 
-  if key == "stackSize" then
-    itemConfig[key] = math.max(1, math.floor(tonumber(value) or itemConfig[key] or 1))
-  elseif key == "keepInBags" then
-    itemConfig.keepInBags = math.max(0, math.floor(tonumber(value) or itemConfig.keepInBags or 0))
-    if SmartRez.MarkCraftRecipeCacheDirty then
-      SmartRez:MarkCraftRecipeCacheDirty()
+    if key == "stackSize" then
+      itemConfig[key] = math.max(1, math.floor(tonumber(value) or itemConfig[key] or 1))
+    elseif key == "keepInBags" then
+      itemConfig.keepInBags = math.max(0, math.floor(tonumber(value) or itemConfig.keepInBags or 0))
+      if SmartRez.MarkCraftRecipeCacheDirty then
+        SmartRez:MarkCraftRecipeCacheDirty()
+      end
+      if SmartRez.MarkCraftSalvageCacheDirty then
+        SmartRez:MarkCraftSalvageCacheDirty()
+      end
+      if SmartRez.RefreshDisenchantButton then
+        SmartRez:RefreshDisenchantButton()
+      end
+    elseif key == "minPriceExpression" then
+      itemConfig.minPriceExpression = SmartRez:NormalizeAHPriceExpression(value, DEFAULT_MIN_PRICE_TEXT)
     end
-    if SmartRez.MarkCraftSalvageCacheDirty then
-      SmartRez:MarkCraftSalvageCacheDirty()
-    end
-    if SmartRez.RefreshDisenchantButton then
-      SmartRez:RefreshDisenchantButton()
-    end
-  elseif key == "minPriceExpression" then
-    itemConfig.minPriceExpression = SmartRez:NormalizeAHPriceExpression(value, DEFAULT_MIN_PRICE_TEXT)
   end
 
   if not skipRefresh then
     refreshViews()
   end
+end
+
+function SmartRez:SetAHSellingBuyActionsPerSell(value, skipRefresh)
+  ensureAHSellingConfig().buyActionsPerSell = math.max(1, math.floor(tonumber(value) or 5))
+  if not skipRefresh then
+    refreshViews()
+  end
+end
+
+function SmartRez:GetAHSellingBuyActionsPerSell()
+  return ensureAHSellingConfig().buyActionsPerSell
 end
 
 function SmartRez:IsAHSellingItemAuctionable(location)
@@ -1035,8 +1069,45 @@ function SmartRez:PrintAHSellingNextAction()
   print("AH Sell: no configured auctionable item found in player bags.")
 end
 
+local function findConfiguredSellingLocation(itemID)
+  local foundEntry
+
+  SmartRez:ForEachPlayerBagSlot(function(bag, slot)
+    if foundEntry then
+      return
+    end
+
+    local itemInfo = C_Container and C_Container.GetContainerItemInfo and C_Container.GetContainerItemInfo(bag, slot)
+    if not itemInfo or itemInfo.itemID ~= itemID then
+      return
+    end
+
+    local stackCount = itemInfo.stackCount or 0
+    local spendableCount = SmartRez:GetSpendableStackCount(itemID, stackCount)
+    if spendableCount <= 0 then
+      return
+    end
+
+    local location = ItemLocation:CreateFromBagAndSlot(bag, slot)
+    if not SmartRez:IsAHSellingItemAuctionable(location) then
+      return
+    end
+
+    foundEntry = {
+      itemID = itemID,
+      itemLink = SmartRez:GetAHItemLinkFromLocation(location, itemID),
+      location = location,
+      firstBag = bag,
+      firstSlot = slot,
+      count = stackCount,
+      spendableCount = spendableCount,
+    }
+  end)
+
+  return foundEntry
+end
+
 function SmartRez:GetNextAHSellingCandidate()
-  local snapshot = self:BuildAHSellingSnapshot()
   local config = ensureAHSellingConfig()
   local orderedItemIDs = config.order
   local itemCount = #orderedItemIDs
@@ -1048,9 +1119,9 @@ function SmartRez:GetNextAHSellingCandidate()
   for offset = 0, itemCount - 1 do
     local index = ((startIndex + offset - 1) % itemCount) + 1
     local itemID = orderedItemIDs[index]
-    local entry = snapshot.itemsByID[itemID]
+    local entry = findConfiguredSellingLocation(itemID)
     if entry and (entry.spendableCount or entry.count or 0) > 0 then
-      local location = ItemLocation:CreateFromBagAndSlot(entry.firstBag, entry.firstSlot)
+      local location = entry.location or ItemLocation:CreateFromBagAndSlot(entry.firstBag, entry.firstSlot)
       local itemConfig = ensureItemConfig(itemID)
       local minPrice, priceError = self:GetAHSellingItemMinPrice(itemID, entry.itemLink)
       local itemKey = getItemKey(location, itemID)
@@ -1075,42 +1146,50 @@ function SmartRez:GetNextAHSellingCandidate()
 end
 
 function SmartRez:ScanAHSellingNextItem(allowPreparedPost)
-  if allowPreparedPost and executePreparedPost() then
-    return
+  if allowPreparedPost then
+    local postResult = executePreparedPost()
+    if postResult then
+      return postResult
+    end
   end
 
   if preparedPost then
     line("blocked", "post is prepared; click AH Sell again")
-    return
+    return actionResult("prepared")
+  end
+
+  if pendingPost then
+    debugLine("blocked", "post already pending")
+    return actionResult("pending")
   end
 
   if hasActiveScanLock() then
     debugLine("blocked", "scan already in progress")
-    return
+    return actionResult("pending")
   end
 
   local ready, reason = getAuctionHouseReady()
   if not ready then
     debugLine("blocked", reason)
-    return
+    return actionResult("blocked")
   end
 
   local candidate = self:GetNextAHSellingCandidate()
   if not candidate then
     line("blocked", "no configured auctionable item found in player bags")
-    return
+    return actionResult("noWork")
   end
 
   if not candidate.itemKey then
     line("blocked", "could not build item key for", candidate.itemLink or ("item:" .. tostring(candidate.itemID)))
     advanceScanCursorFrom(candidate.scanIndex or 1)
-    return
+    return actionResult("blocked")
   end
 
   if not candidate.minPrice then
     line("blocked", "min price error", tostring(candidate.priceError))
     advanceScanCursorFrom(candidate.scanIndex or 1)
-    return
+    return actionResult("blocked")
   end
 
   ensureScanEvents()
@@ -1132,6 +1211,29 @@ function SmartRez:ScanAHSellingNextItem(allowPreparedPost)
   )
 
   attemptActiveScanSearch()
+  if activeScan and activeScan.searchSent then
+    return actionResult("scanStarted", true)
+  end
+  if activeScan then
+    return actionResult("pending")
+  end
+  return actionResult("failed")
+end
+
+function SmartRez:HasAHSellingActiveScan()
+  return hasActiveScanLock()
+end
+
+function SmartRez:HasAHSellingPreparedPost()
+  return preparedPost ~= nil
+end
+
+function SmartRez:HasAHSellingPendingPost()
+  return pendingPost ~= nil
+end
+
+function SmartRez:HasAHSellingConfiguredWork()
+  return #ensureAHSellingConfig().order > 0
 end
 
 local function isActiveClickPhase(down)

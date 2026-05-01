@@ -61,6 +61,7 @@ SmartRez.dbDefaults = {
 		items = {},
 		order = {},
 		scanCursor = 1,
+		buyActionsPerSell = 5,
 	},
 	ahSniper = {
 		whitelist = {},

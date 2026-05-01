@@ -22,6 +22,7 @@
 - Keep remote profession/backend access behind `professionProxy.lua`.
 - Keep inventory scan helpers source-aware; do not silently collapse shared scans to player bags.
 - Keep AH item reserves centralized in Core helpers. Workflows that consume items should use `GetCraftingSpendableItemCount(...)` or `GetSpendableStackCount(...)` so configured AH Sniper bait and AH Selling keep-in-bags counts are preserved.
+- AH Selling saved state includes the unified AH Buy/Sell scheduler cadence. Keep the default in `core.lua` aligned with `Features/ahSelling.lua` normalization.
 - Craft action controllers may allow a Gold Printer priority interrupt only for an active craft-in-progress lock. Do not bypass bag-space waits or passive profession/opening gates.
 - Keep slash commands thin. Route to existing feature/UI entrypoints instead of embedding feature logic.
 - When adding shared state, document persistence scope and SavedVariables impact in the root doc if it changes addon-wide behavior.

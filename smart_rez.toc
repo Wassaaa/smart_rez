@@ -16,6 +16,7 @@ Craft/craftSalvageConfig.lua
 Features/bagValue.lua
 Features/ahSelling.lua
 Features/ahSniper.lua
+Features/ahScheduler.lua
 Features/goldPrinterConfig.lua
 UI/uiComponents.lua
 UI/overrideBindingPopup.lua

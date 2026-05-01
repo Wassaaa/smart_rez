@@ -12,7 +12,7 @@
 - `recipeCrafts.lua`: recipe craft registrations.
 - `warbankGrab.lua`: warbank grab workflow.
 - `lowmode.lua`: low-mode utilities and persisted low-mode behavior.
-- `ahSelling.lua` and `ahSniper.lua`: Auction House selling/sniping workflows.
+- `ahSelling.lua`, `ahSniper.lua`, and `ahScheduler.lua`: Auction House selling/sniping workflows and the unified AH buy/sell scheduler button.
 - `menuProbe.lua`: runtime probe/feature helper. Keep probe behavior intentional and low-noise.
 
 ## Contracts
@@ -24,6 +24,7 @@
 - Keep feature debug logs high-signal and prefixed.
 - For AH features, nil-check optional Auctionator/TSM surfaces and keep integration-specific details isolated.
 - AH Sniper owns bait buy/post configuration, and AH Selling owns sell stock configuration. Both may define per-item keep-in-bags reserves; other item-consuming features should respect those reserves through Core spendable-count helpers. AH Sniper bait posting itself intentionally ignores keep-in-bags reserves.
+- AH Scheduler owns the unified AH Buy/Sell bindable action. It must only start AH actions through AH Sniper/AH Selling status-returning APIs, count only successful throttle-consuming buy/bait calls toward the sell cadence, and avoid starting a new AH action while buy, bait, sell scan, or sell post work is pending.
 - Gold Printer routine steps may own per-step disenchant or salvage whitelist context storage keyed by routine and step index. Step move, remove, or type-change operations must remap or clear that context storage in the same mutation so target lists stay attached to the logical step.
 - Gold Printer priority steps include timed priority and buff priority. Buff priority is a generic condition wrapper for any Gold Printer step type and can key off a tracked player buff being missing/low or present. Priority dispatch may prepend `/stopcasting` and allow the target craft controller to unlock an active craft-in-progress lock so the priority step can run; keep this click-driven and do not turn it into a passive timer.
 

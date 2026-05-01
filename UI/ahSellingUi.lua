@@ -204,6 +204,19 @@ function UI.RenderAHSellingTab(parent)
 	local summary = UI.CreateCard(parent, "AH Selling")
 	UI.AddLabel(summary, "Configure auctionable player-bag items here. Posting still requires the Auction House to be open; this window is only the setup surface.", "A5D6FF")
 
+	local cadenceRow = AceGUI:Create("SimpleGroup")
+	cadenceRow:SetFullWidth(true)
+	cadenceRow:SetLayout("Flow")
+	summary:AddChild(cadenceRow)
+
+	addTinyLabel(cadenceRow, "Sell every", 76, "79C0FF")
+	addCompactEdit(cadenceRow, 44, SmartRez:GetAHSellingBuyActionsPerSell(), function(value)
+		mutateAHSellingConfig(function()
+			SmartRez:SetAHSellingBuyActionsPerSell(value, true)
+		end)
+	end)
+	addTinyLabel(cadenceRow, "buy/bait actions", 112, "7D8590")
+
 	UI.RenderIconMultiPicker(parent, {
 		title = "Selling Items",
 		helpText = "Auctionable items from player bags. Click icons to include or exclude them from the Smart Rez AH selling list.",
