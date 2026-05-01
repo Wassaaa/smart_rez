@@ -42,6 +42,10 @@ local function hasSniperWork()
   return SmartRez.HasAHSniperConfiguredWork and SmartRez:HasAHSniperConfiguredWork()
 end
 
+local function hasSniperBulkOpportunity()
+  return SmartRez.HasAHSniperBulkOpportunity and SmartRez:HasAHSniperBulkOpportunity()
+end
+
 local function hasSellingWork()
   return SmartRez.HasAHSellingConfiguredWork and SmartRez:HasAHSellingConfiguredWork()
 end
@@ -63,7 +67,7 @@ local function runSniper()
 end
 
 local function recordSniperResult(result)
-  if result and result.consumedThrottle then
+  if result and result.consumedThrottle and (result.status == "startedBuy" or result.status == "postedBait") then
     buyActionsSinceSell = buyActionsSinceSell + 1
   end
 end
@@ -82,6 +86,12 @@ function SmartRez:RunAHBuySellNextAction()
   if hasPendingAHOperation() then
     debugLine("blocked", "AH operation pending")
     return
+  end
+
+  if hasSniperBulkOpportunity() then
+    local sniperResult = runSniper()
+    recordSniperResult(sniperResult)
+    return sniperResult
   end
 
   if self.HasAHSellingPreparedPost and self:HasAHSellingPreparedPost() then

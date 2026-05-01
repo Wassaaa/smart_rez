@@ -8,20 +8,27 @@ local DEFAULT_BAIT_STACK_SIZE = 0
 local DEFAULT_BAIT_INTERVAL_SECONDS = 30
 local DEFAULT_AUCTION_DURATION = 1
 local SCAN_TIMEOUT_SECONDS = 10
+local BULK_SCAN_TIMEOUT_SECONDS = 5
 local PREFIX = "Smart Rez AH Snipe:"
 
 local ahSniperFrame = CreateFrame("Frame")
 local pendingBuy
 local pendingBait
+local bulkOpportunity
+local bulkScan
+local pendingBulkBuy
 local lastBaitByItemID = {}
 local latestScanByItemID = {}
 
 local SEARCH_EVENTS = {
 	"COMMODITY_PRICE_UPDATED",
 	"COMMODITY_PRICE_UNAVAILABLE",
+	"COMMODITY_SEARCH_RESULTS_UPDATED",
 	"COMMODITY_PURCHASE_SUCCEEDED",
 	"COMMODITY_PURCHASE_FAILED",
 	"AUCTION_HOUSE_THROTTLED_SYSTEM_READY",
+	"AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED",
+	"AUCTION_HOUSE_BROWSE_FAILURE",
 	"AUCTION_HOUSE_AUCTION_CREATED",
 	"AUCTION_HOUSE_POST_ERROR",
 	"UI_ERROR_MESSAGE",
@@ -182,6 +189,21 @@ local function hasPendingBaitLock()
 	return false
 end
 
+local function hasBulkScanLock()
+	if not bulkScan then
+		return false
+	end
+
+	local now = GetTime and GetTime() or 0
+	if now - (bulkScan.startedAt or now) <= BULK_SCAN_TIMEOUT_SECONDS then
+		return true
+	end
+
+	debugLine("bulk scan timeout", bulkScan.itemLink or ("item:" .. tostring(bulkScan.itemID)), "clearing")
+	bulkScan = nil
+	return false
+end
+
 local function ensureEvents()
 	for _, eventName in ipairs(SEARCH_EVENTS) do
 		pcall(ahSniperFrame.RegisterEvent, ahSniperFrame, eventName)
@@ -195,8 +217,24 @@ local function buildBuyRequest(candidate)
 		quantity = candidate.buyStackSize,
 		maxUnitPrice = candidate.buyPrice,
 		maxTotal = candidate.buyPrice * candidate.buyStackSize,
+		bulkMode = candidate.bulkMode == true,
 		startedAt = GetTime and GetTime() or 0,
 	}
+end
+
+local function getItemKey(itemID)
+	if C_AuctionHouse and C_AuctionHouse.MakeItemKey then
+		local ok, itemKey = pcall(C_AuctionHouse.MakeItemKey, itemID)
+		if ok and type(itemKey) == "table" then
+			return itemKey
+		end
+	end
+end
+
+local function clearBulkState()
+	bulkOpportunity = nil
+	bulkScan = nil
+	pendingBulkBuy = nil
 end
 
 local function recordLatestScan(itemID, quote, maxPrice)
@@ -231,6 +269,7 @@ local function startBuyRequest(buy, source)
 		quantity = buy.quantity,
 		maxUnitPrice = buy.maxUnitPrice,
 		maxTotal = buy.maxTotal,
+		bulkMode = buy.bulkMode == true,
 		startedAt = GetTime and GetTime() or 0,
 	}
 
@@ -242,7 +281,63 @@ local function startBuyRequest(buy, source)
 	end
 
 	debugLine("purchase quote requested", buy.itemLink or ("item:" .. tostring(buy.itemID)), source or "direct", "x" .. tostring(buy.quantity), "cap", SmartRez.UI.FormatMoney(buy.maxUnitPrice))
-	return actionResult("startedBuy", true)
+	return actionResult(buy.bulkMode and "startedBulkBuy" or "startedBuy", true)
+end
+
+local function startBulkScan()
+	if not bulkOpportunity then
+		return nil
+	end
+
+	local ready, reason = SmartRez:IsAHReady()
+	if not ready then
+		debugLine("blocked bulk scan", reason)
+		return actionResult("blocked")
+	end
+
+	local itemKey = getItemKey(bulkOpportunity.itemID)
+	if not itemKey then
+		debugLine("bulk scan skipped no item key", bulkOpportunity.itemLink or ("item:" .. tostring(bulkOpportunity.itemID)))
+		clearBulkState()
+		return actionResult("failed")
+	end
+
+	ensureEvents()
+	bulkScan = {
+		itemID = bulkOpportunity.itemID,
+		itemLink = bulkOpportunity.itemLink,
+		itemKey = itemKey,
+		maxUnitPrice = bulkOpportunity.maxUnitPrice,
+		configuredStackSize = bulkOpportunity.configuredStackSize,
+		startedAt = GetTime and GetTime() or 0,
+	}
+
+	local ok, err = pcall(C_AuctionHouse.SendSearchQuery, itemKey, { { sortOrder = 0, reverseSort = false } }, true)
+	if not ok then
+		debugLine("bulk scan failed", tostring(err))
+		clearBulkState()
+		return actionResult("failed")
+	end
+
+	debugLine("bulk scan sent", bulkScan.itemLink or ("item:" .. tostring(bulkScan.itemID)), "cap", SmartRez.UI.FormatMoney(bulkScan.maxUnitPrice))
+	return actionResult("bulkScanStarted", true)
+end
+
+local function startPendingBulkBuy()
+	if not pendingBulkBuy then
+		return nil
+	end
+
+	local buy = pendingBulkBuy
+	pendingBulkBuy = nil
+	return startBuyRequest({
+		itemID = buy.itemID,
+		itemLink = buy.itemLink,
+		quantity = buy.quantity,
+		maxUnitPrice = buy.maxUnitPrice,
+		maxTotal = buy.maxUnitPrice * buy.quantity,
+		bulkMode = true,
+	}, "bulk")
 end
 
 local function tryPostBait(candidate)
@@ -318,6 +413,54 @@ local function processBuyPriceUpdated(unitPrice, totalPrice)
 		)
 		pendingBuy = nil
 	end
+end
+
+local function processBulkSearchResults(itemID)
+	if not bulkScan or bulkScan.itemID ~= itemID then
+		return
+	end
+
+	local scan = bulkScan
+	bulkScan = nil
+	local resultCount = C_AuctionHouse.GetNumCommoditySearchResults and C_AuctionHouse.GetNumCommoditySearchResults(itemID) or 0
+	local first = resultCount > 0 and C_AuctionHouse.GetCommoditySearchResultInfo(itemID, 1) or nil
+	local unitPrice = first and tonumber(first.unitPrice) or nil
+	local quantity = first and math.max(0, math.floor(tonumber(first.quantity) or 0)) or 0
+	if not unitPrice or unitPrice <= 0 or quantity <= 0 then
+		debugLine("bulk scan empty", scan.itemLink or ("item:" .. tostring(itemID)))
+		clearBulkState()
+		return
+	end
+
+	if unitPrice > scan.maxUnitPrice then
+		debugLine("bulk skipped", scan.itemLink or ("item:" .. tostring(itemID)), "unit", SmartRez.UI.FormatMoney(unitPrice), "cap", SmartRez.UI.FormatMoney(scan.maxUnitPrice))
+		clearBulkState()
+		return
+	end
+
+	if quantity <= math.max(1, math.floor(tonumber(scan.configuredStackSize) or 1)) then
+		debugLine("bulk skipped small stack", scan.itemLink or ("item:" .. tostring(itemID)), "x" .. tostring(quantity))
+		clearBulkState()
+		return
+	end
+
+	local moneyAvailable = GetMoney and GetMoney() or 0
+	local affordableQuantity = math.floor(moneyAvailable / unitPrice)
+	local buyQuantity = math.min(quantity, affordableQuantity)
+	if buyQuantity <= math.max(1, math.floor(tonumber(scan.configuredStackSize) or 1)) then
+		debugLine("bulk skipped gold", scan.itemLink or ("item:" .. tostring(itemID)), "x" .. tostring(quantity), "unit", SmartRez.UI.FormatMoney(unitPrice))
+		clearBulkState()
+		return
+	end
+
+	pendingBulkBuy = {
+		itemID = itemID,
+		itemLink = scan.itemLink,
+		quantity = buyQuantity,
+		maxUnitPrice = scan.maxUnitPrice,
+	}
+	bulkOpportunity = nil
+	debugLine("bulk ready", scan.itemLink or ("item:" .. tostring(itemID)), "x" .. tostring(buyQuantity), "unit", SmartRez.UI.FormatMoney(unitPrice), "cap", SmartRez.UI.FormatMoney(scan.maxUnitPrice))
 end
 
 local function getCandidate()
@@ -437,11 +580,15 @@ function SmartRez:GetAHSniperLatestScanDisplayText(itemID)
 end
 
 function SmartRez:HasAHSniperPendingAction()
-	return hasPendingBuyLock() or hasPendingBaitLock()
+	return hasPendingBuyLock() or hasPendingBaitLock() or hasBulkScanLock()
 end
 
 function SmartRez:HasAHSniperConfiguredWork()
 	return #ensureAHSniperConfig().order > 0
+end
+
+function SmartRez:HasAHSniperBulkOpportunity()
+	return pendingBulkBuy ~= nil or bulkOpportunity ~= nil
 end
 
 function SmartRez:RunAHSniperNextAction()
@@ -453,11 +600,25 @@ function SmartRez:RunAHSniperNextAction()
 		debugLine("blocked bait pending")
 		return actionResult("pending")
 	end
+	if hasBulkScanLock() then
+		debugLine("blocked bulk scan pending")
+		return actionResult("pending")
+	end
 
 	local ready, reason = SmartRez:IsAHReady()
 	if not ready then
 		debugLine("blocked", reason)
 		return actionResult("blocked")
+	end
+
+	local bulkBuyResult = startPendingBulkBuy()
+	if bulkBuyResult then
+		return bulkBuyResult
+	end
+
+	local bulkScanResult = startBulkScan()
+	if bulkScanResult then
+		return bulkScanResult
 	end
 
 	local candidate = getCandidate()
@@ -502,8 +663,13 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 	elseif eventName == "COMMODITY_PRICE_UNAVAILABLE" then
 		if pendingBuy then
 			actionLine(pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "FF7B72", "price unavailable")
+			if pendingBuy.bulkMode then
+				clearBulkState()
+			end
 		end
 		pendingBuy = nil
+	elseif eventName == "COMMODITY_SEARCH_RESULTS_UPDATED" then
+		processBulkSearchResults(...)
 	elseif eventName == "COMMODITY_PURCHASE_SUCCEEDED" and pendingBuy then
 		actionLine(
 			pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)),
@@ -513,10 +679,37 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 			"at",
 			money(pendingBuy.confirmedUnitPrice or pendingBuy.maxUnitPrice or 0, "7EE787")
 		)
+		if pendingBuy.bulkMode then
+			clearBulkState()
+		else
+			local itemConfig = ensureItemConfig(pendingBuy.itemID)
+			local configuredCap = SmartRez:GetAHPriceExpressionValue(
+				itemConfig.buyPriceExpression,
+				pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)),
+				pendingBuy.itemID
+			)
+			local confirmedUnitPrice = pendingBuy.confirmedUnitPrice or pendingBuy.maxUnitPrice
+			local maxUnitPrice = math.min(confirmedUnitPrice or pendingBuy.maxUnitPrice, configuredCap or pendingBuy.maxUnitPrice)
+			if type(maxUnitPrice) == "number" and maxUnitPrice > 0 then
+				bulkOpportunity = {
+					itemID = pendingBuy.itemID,
+					itemLink = pendingBuy.itemLink,
+					maxUnitPrice = maxUnitPrice,
+					configuredStackSize = pendingBuy.quantity,
+				}
+				debugLine("bulk opportunity", pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "cap", SmartRez.UI.FormatMoney(maxUnitPrice))
+			end
+		end
 		pendingBuy = nil
 	elseif eventName == "COMMODITY_PURCHASE_FAILED" and pendingBuy then
 		actionLine(pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "FF7B72", "buy failed")
+		if pendingBuy.bulkMode then
+			clearBulkState()
+		end
 		pendingBuy = nil
+	elseif (eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" or eventName == "AUCTION_HOUSE_BROWSE_FAILURE") and bulkScan then
+		debugLine("bulk scan failed", eventName)
+		clearBulkState()
 	elseif eventName == "AUCTION_HOUSE_AUCTION_CREATED" and pendingBait then
 		actionLine(
 			pendingBait.itemLink or ("item:" .. tostring(pendingBait.itemID)),
