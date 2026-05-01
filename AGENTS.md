@@ -124,6 +124,7 @@ Retail secure buttons and profession access are fragile. Preserve these patterns
 - If both click phases are registered, gate work with the active phase.
 - Preserve event-driven craft/disenchant locks. Do not replace stable state machines with arbitrary repeated timers.
 - Recipe craft and salvage should share craft-controller primitives from `Core/craftCore.lua` where possible.
+- Gold Printer priority interrupts must stay click-driven. They may use `/stopcasting` plus craft-controller unlocks for active craft-in-progress locks, but must not bypass bag-space waits or passive profession-opening gates.
 
 ## Inventory Sources
 

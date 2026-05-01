@@ -345,6 +345,12 @@ function SmartRez:CreateCraftActionController(options)
 			return false
 		end
 
+		if SmartRez.goldPrinterAllowCraftInterrupt == true and self.isCraftInProgress then
+			self:Debug("interrupting", "gold printer priority", self:GetLockState())
+			self:Unlock("gold printer priority interrupt")
+			return false
+		end
+
 		if self.isWaitingForBagSpace then
 			self:Debug(
 				"blocked",

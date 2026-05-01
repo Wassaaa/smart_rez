@@ -50,6 +50,11 @@ local GOLD_PRINTER_COMPLETION_MODES = {
 	once = "Once, then next step",
 	count = "Fixed number of actions",
 	interval = "Timed priority",
+	buff = "Buff priority",
+}
+local GOLD_PRINTER_BUFF_CONDITIONS = {
+	missing = "Craft when buff is missing or low",
+	present = "Craft only while buff is present",
 }
 local ensureDisenchantWhitelistStore
 
@@ -183,10 +188,16 @@ local function normalizeRoutineStep(step)
 		completionMode = step.completionMode or "untilNoTargets",
 		actionCount = math.max(1, math.floor(tonumber(step.actionCount) or 1)),
 		intervalSeconds = math.max(1, math.floor(tonumber(step.intervalSeconds) or 900)),
+		buffSpellID = math.max(0, math.floor(tonumber(step.buffSpellID) or 0)),
+		buffRefreshSeconds = math.max(0, math.floor(tonumber(step.buffRefreshSeconds) or 0)),
+		buffCondition = step.buffCondition or "missing",
 	}
 
 	if not GOLD_PRINTER_COMPLETION_MODES[normalized.completionMode] then
 		normalized.completionMode = "untilNoTargets"
+	end
+	if not GOLD_PRINTER_BUFF_CONDITIONS[normalized.buffCondition] then
+		normalized.buffCondition = "missing"
 	end
 
 	if stepType == "recipeCraft" then
@@ -269,6 +280,98 @@ local function ensureGoldPrinterConfig()
 	end
 
 	return goldPrinterConfig
+end
+
+local function getGoldPrinterStepContextDescriptors(routineKey, stepIndex, step)
+	local descriptors = {}
+	if not step then
+		return descriptors
+	end
+
+	if step.type == "disenchant" then
+		descriptors[#descriptors + 1] = {
+			store = "disenchantWhitelists",
+			key = SmartRez:GetGoldPrinterRoutineStepDisenchantContextKey(routineKey, stepIndex),
+		}
+	elseif step.type == "craftSalvage" then
+		local professionKey = step.selection and step.selection.professionKey or nil
+		if professionKey then
+			descriptors[#descriptors + 1] = {
+				store = "salvageWhitelists",
+				key = SmartRez:GetGoldPrinterRoutineStepCraftSalvageContextKey(routineKey, stepIndex, professionKey),
+			}
+		end
+	end
+
+	return descriptors
+end
+
+local function clearGoldPrinterStepContextStorage(routineKey, stepIndex, step)
+	SmartRez:EnsureConfig()
+	for _, descriptor in ipairs(getGoldPrinterStepContextDescriptors(routineKey, stepIndex, step)) do
+		local store = SmartRez.db[descriptor.store]
+		if type(store) == "table" then
+			store[descriptor.key] = nil
+		end
+	end
+end
+
+local function captureGoldPrinterStepContextStorage(routineKey, stepIndex, step)
+	SmartRez:EnsureConfig()
+	local captured = {}
+	for _, descriptor in ipairs(getGoldPrinterStepContextDescriptors(routineKey, stepIndex, step)) do
+		local store = SmartRez.db[descriptor.store]
+		captured[#captured + 1] = {
+			store = descriptor.store,
+			value = type(store) == "table" and store[descriptor.key] or nil,
+		}
+	end
+	return captured
+end
+
+local function restoreGoldPrinterStepContextStorage(routineKey, stepIndex, step, captured)
+	SmartRez:EnsureConfig()
+	local descriptors = getGoldPrinterStepContextDescriptors(routineKey, stepIndex, step)
+	for index, descriptor in ipairs(descriptors) do
+		local capturedEntry = captured and captured[index] or nil
+		if capturedEntry and capturedEntry.value ~= nil then
+			if type(SmartRez.db[descriptor.store]) ~= "table" then
+				SmartRez.db[descriptor.store] = {}
+			end
+			SmartRez.db[descriptor.store][descriptor.key] = capturedEntry.value
+		end
+	end
+end
+
+local function swapGoldPrinterStepContextStorage(routineKey, leftIndex, leftStep, rightIndex, rightStep)
+	local leftContext = captureGoldPrinterStepContextStorage(routineKey, leftIndex, leftStep)
+	local rightContext = captureGoldPrinterStepContextStorage(routineKey, rightIndex, rightStep)
+	clearGoldPrinterStepContextStorage(routineKey, leftIndex, leftStep)
+	clearGoldPrinterStepContextStorage(routineKey, rightIndex, rightStep)
+	restoreGoldPrinterStepContextStorage(routineKey, rightIndex, leftStep, leftContext)
+	restoreGoldPrinterStepContextStorage(routineKey, leftIndex, rightStep, rightContext)
+end
+
+local function moveGoldPrinterStepContextStorage(routineKey, fromIndex, toIndex, step)
+	local context = captureGoldPrinterStepContextStorage(routineKey, fromIndex, step)
+	clearGoldPrinterStepContextStorage(routineKey, fromIndex, step)
+	clearGoldPrinterStepContextStorage(routineKey, toIndex, step)
+	restoreGoldPrinterStepContextStorage(routineKey, toIndex, step, context)
+end
+
+local function invalidateGoldPrinterStepContexts()
+	if SmartRez.ClearActiveGoldPrinterStepContexts then
+		SmartRez:ClearActiveGoldPrinterStepContexts()
+	end
+	if SmartRez.MarkCraftRecipeCacheDirty then
+		SmartRez:MarkCraftRecipeCacheDirty()
+	end
+	if SmartRez.MarkCraftSalvageCacheDirty then
+		SmartRez:MarkCraftSalvageCacheDirty()
+	end
+	if SmartRez.RefreshDisenchantButton then
+		SmartRez:RefreshDisenchantButton()
+	end
 end
 
 ensureDisenchantWhitelistStore = function()
@@ -496,7 +599,18 @@ function SmartRez:RemoveGoldPrinterRoutineStep(stepIndex)
 		return
 	end
 
+	stepIndex = math.floor(tonumber(stepIndex) or 0)
+	if stepIndex < 1 or stepIndex > #routine.steps then
+		return
+	end
+
+	local routineKey = routine.key or self:GetGoldPrinterSelectedRoutineKey()
+	clearGoldPrinterStepContextStorage(routineKey, stepIndex, routine.steps[stepIndex])
 	table.remove(routine.steps, stepIndex)
+	for currentIndex = stepIndex, #routine.steps do
+		moveGoldPrinterStepContextStorage(routineKey, currentIndex + 1, currentIndex, routine.steps[currentIndex])
+	end
+	invalidateGoldPrinterStepContexts()
 	refreshViews()
 end
 
@@ -506,29 +620,41 @@ function SmartRez:MoveGoldPrinterRoutineStep(stepIndex, direction)
 		return
 	end
 
+	stepIndex = math.floor(tonumber(stepIndex) or 0)
+	direction = math.floor(tonumber(direction) or 0)
 	local targetIndex = stepIndex + direction
-	if targetIndex < 1 or targetIndex > #routine.steps then
+	if stepIndex < 1 or stepIndex > #routine.steps or targetIndex < 1 or targetIndex > #routine.steps then
 		return
 	end
 
+	local routineKey = routine.key or self:GetGoldPrinterSelectedRoutineKey()
+	swapGoldPrinterStepContextStorage(routineKey, stepIndex, routine.steps[stepIndex], targetIndex, routine.steps[targetIndex])
 	routine.steps[stepIndex], routine.steps[targetIndex] = routine.steps[targetIndex], routine.steps[stepIndex]
+	invalidateGoldPrinterStepContexts()
 	refreshViews()
 end
 
 function SmartRez:SetGoldPrinterRoutineStepType(stepIndex, stepType)
 	local routine = self:GetGoldPrinterRoutine()
+	stepIndex = math.floor(tonumber(stepIndex) or 0)
 	if not routine or not routine.steps[stepIndex] then
 		return
 	end
 
+	clearGoldPrinterStepContextStorage(routine.key or self:GetGoldPrinterSelectedRoutineKey(), stepIndex, routine.steps[stepIndex])
 	routine.steps[stepIndex] = normalizeRoutineStep({
 		type = stepType,
 	})
+	invalidateGoldPrinterStepContexts()
 	refreshViews()
 end
 
 function SmartRez:GetGoldPrinterStepCompletionModeList()
 	return copyTable(GOLD_PRINTER_COMPLETION_MODES)
+end
+
+function SmartRez:GetGoldPrinterBuffConditionList()
+	return copyTable(GOLD_PRINTER_BUFF_CONDITIONS)
 end
 
 function SmartRez:SetGoldPrinterRoutineStepCompletionMode(stepIndex, completionMode)
@@ -563,6 +689,39 @@ function SmartRez:SetGoldPrinterRoutineStepIntervalSeconds(stepIndex, value)
 	end
 
 	step.intervalSeconds = math.max(1, math.floor(tonumber(value) or 900))
+	refreshViews()
+end
+
+function SmartRez:SetGoldPrinterRoutineStepBuffSpellID(stepIndex, value)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step then
+		return
+	end
+
+	step.buffSpellID = math.max(0, math.floor(tonumber(value) or 0))
+	refreshViews()
+end
+
+function SmartRez:SetGoldPrinterRoutineStepBuffCondition(stepIndex, value)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step or not GOLD_PRINTER_BUFF_CONDITIONS[value] then
+		return
+	end
+
+	step.buffCondition = value
+	refreshViews()
+end
+
+function SmartRez:SetGoldPrinterRoutineStepBuffRefreshSeconds(stepIndex, value)
+	local routine = self:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step then
+		return
+	end
+
+	step.buffRefreshSeconds = math.max(0, math.floor(tonumber(value) or 0))
 	refreshViews()
 end
 

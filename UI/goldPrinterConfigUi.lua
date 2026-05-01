@@ -246,6 +246,45 @@ local function renderStepCompletionControls(stepGroup, stepIndex, step)
     end)
     stepGroup:AddChild(intervalBox)
   end
+
+  if step.completionMode == "buff" then
+    ---@type AceGUIDropdown
+    local buffConditionDropdown = AceGUI:Create("Dropdown")
+    buffConditionDropdown:SetFullWidth(true)
+    buffConditionDropdown:SetLabel("Buff condition")
+    buffConditionDropdown:SetList(SmartRez:GetGoldPrinterBuffConditionList())
+    buffConditionDropdown:SetValue(step.buffCondition or "missing")
+    buffConditionDropdown:SetCallback("OnValueChanged", function(_, _, value)
+      mutateGoldPrinterConfig(function()
+        SmartRez:SetGoldPrinterRoutineStepBuffCondition(stepIndex, value)
+      end)
+    end)
+    stepGroup:AddChild(buffConditionDropdown)
+
+    local buffSpellBox = AceGUI:Create("EditBox")
+    buffSpellBox:SetFullWidth(true)
+    buffSpellBox:SetLabel("Buff spell ID")
+    buffSpellBox:SetText(tostring(step.buffSpellID or ""))
+    buffSpellBox:SetCallback("OnEnterPressed", function(_, _, value)
+      mutateGoldPrinterConfig(function()
+        SmartRez:SetGoldPrinterRoutineStepBuffSpellID(stepIndex, value)
+      end)
+    end)
+    stepGroup:AddChild(buffSpellBox)
+
+    if (step.buffCondition or "missing") == "missing" then
+      local refreshBox = AceGUI:Create("EditBox")
+      refreshBox:SetFullWidth(true)
+      refreshBox:SetLabel("Refresh when remaining seconds <= ")
+      refreshBox:SetText(tostring(step.buffRefreshSeconds or 0))
+      refreshBox:SetCallback("OnEnterPressed", function(_, _, value)
+        mutateGoldPrinterConfig(function()
+          SmartRez:SetGoldPrinterRoutineStepBuffRefreshSeconds(stepIndex, value)
+        end)
+      end)
+      stepGroup:AddChild(refreshBox)
+    end
+  end
 end
 
 local function renderStepButtons(stepGroup, stepIndex)
