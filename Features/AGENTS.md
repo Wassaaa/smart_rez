@@ -23,6 +23,7 @@
 - Prefer player-bag behavior as the safe default, but do not break warbank/source-aware flows by narrowing shared scans.
 - Keep feature debug logs high-signal and prefixed.
 - For AH features, nil-check optional Auctionator/TSM surfaces and keep integration-specific details isolated.
+- AH Sniper owns bait buy/post configuration, and AH Selling owns sell stock configuration. Both may define per-item keep-in-bags reserves; other item-consuming features should respect those reserves through Core spendable-count helpers. AH Sniper bait posting itself intentionally ignores keep-in-bags reserves.
 
 ## Disenchant Contract
 
@@ -42,4 +43,4 @@ No child `AGENTS.md` files exist yet. Add one when a feature family gains multip
 
 ## Doc Updates
 
-Update this file when feature ownership changes, a workflow gains new state/config/API contracts, secure timing changes, AH behavior changes, or feature code graduates into shared modules.
+Update this file when feature ownership changes, a workflow gains new state/config/API contracts, secure timing changes, AH behavior changes, item reserve behavior changes, or feature code graduates into shared modules.

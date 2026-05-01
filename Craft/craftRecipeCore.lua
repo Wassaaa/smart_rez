@@ -53,7 +53,7 @@ end
 
 local function getAvailableReagentCount(reagent)
 	if reagent.itemID then
-		return SmartRez:GetCraftingItemCount(reagent.itemID)
+		return SmartRez:GetCraftingSpendableItemCount(reagent.itemID)
 	end
 
 	if reagent.currencyID then

@@ -216,7 +216,10 @@ function DE:GetFirstTarget()
 
   SmartRez:ForEachCraftingItemSourceSlot(function(bag, slot)
     local itemInfo = C_Container.GetContainerItemInfo(bag, slot)
-    if itemInfo and whitelist[itemInfo.itemID] and not self:IsTrackedSlotBlocked(bag, slot, itemInfo) then
+    if itemInfo
+        and whitelist[itemInfo.itemID]
+        and SmartRez:GetSpendableStackCount(itemInfo.itemID, itemInfo.stackCount) > 0
+        and not self:IsTrackedSlotBlocked(bag, slot, itemInfo) then
       target = {
         itemID = itemInfo.itemID,
         bag = bag,
@@ -722,7 +725,11 @@ function SmartRez:GetAvailableDisenchantItemIDs()
     local itemID = itemInfo and itemInfo.itemID
     local itemLocation = itemID and ItemLocation:CreateFromBagAndSlot(bag, slot) or nil
     local isBound = itemLocation and C_Item.IsBound and C_Item.IsBound(itemLocation) or false
-    if itemID and not isBound and not seen[itemID] and self:IsItemDisenchantable(itemID) then
+    if itemID
+        and not isBound
+        and not seen[itemID]
+        and self:GetSpendableStackCount(itemID, itemInfo.stackCount) > 0
+        and self:IsItemDisenchantable(itemID) then
       seen[itemID] = true
       itemIDs[#itemIDs + 1] = itemID
     end

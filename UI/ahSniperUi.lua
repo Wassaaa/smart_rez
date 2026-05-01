@@ -205,6 +205,13 @@ local function renderItemConfig(parent, snapshot, itemID)
 			SmartRez:SetAHSniperItemConfigValue(itemID, "baitIntervalSeconds", value, true)
 		end)
 	end)
+	baitRow:AddChild(UI.CreateHorizontalSpacer(8))
+	addTinyLabel(baitRow, "Keep", 44)
+	addCompactEdit(baitRow, 44, itemConfig.baitKeepInBags or 0, function(value)
+		mutateAHSniperConfig(function()
+			SmartRez:SetAHSniperItemConfigValue(itemID, "baitKeepInBags", value, true)
+		end)
+	end)
 
 	UI.AddSectionSpacer(itemGroup)
 end

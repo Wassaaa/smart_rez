@@ -135,6 +135,7 @@ Retail secure buttons and profession access are fragile. Preserve these patterns
   - `ForEachPlayerBagSlot(...)`
 - Do not "fix" timing bugs by silently making scans player-bag-only; that can break warbank behavior.
 - Separate readiness/access logic from target selection logic.
+- AH Sniper bait and AH Selling can each reserve a minimum player-bag count per item. Non-bait consumers should use spendable-count helpers such as `GetCraftingSpendableItemCount(...)` and `GetSpendableStackCount(...)`; bait posting intentionally ignores these reserves.
 
 ## Integrations
 

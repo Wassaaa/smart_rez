@@ -136,6 +136,7 @@ local function ensureItemConfig(itemID)
 
   local itemConfig = config.items[itemID]
   itemConfig.stackSize = math.max(1, math.floor(tonumber(itemConfig.stackSize) or DEFAULT_STACK_SIZE))
+  itemConfig.keepInBags = math.max(0, math.floor(tonumber(itemConfig.keepInBags) or 0))
   itemConfig.minPriceExpression = SmartRez:TrimAHText(itemConfig.minPriceExpression)
       or SmartRez:TrimAHText(itemConfig.minPriceType == "tsm" and itemConfig.tsmMinPriceSource or
         itemConfig.fixedMinPriceText)
@@ -305,7 +306,7 @@ local function findPostLocation(itemID)
     end
 
     local itemInfo = C_Container and C_Container.GetContainerItemInfo and C_Container.GetContainerItemInfo(bag, slot)
-    if itemInfo and itemInfo.itemID == itemID then
+    if itemInfo and itemInfo.itemID == itemID and SmartRez:GetSpendableStackCount(itemID, itemInfo.stackCount) > 0 then
       foundLocation = ItemLocation:CreateFromBagAndSlot(bag, slot)
       foundBag = bag
       foundSlot = slot
@@ -422,12 +423,24 @@ local function executePreparedPost()
     return true
   end
 
-  debugLine("post slot", tostring(bag), tostring(slot), "count", tostring(foundCount or "?"))
+  local currentItemInfo = bag and slot and C_Container.GetContainerItemInfo(bag, slot) or nil
+  local spendableStackCount = currentItemInfo and currentItemInfo.itemID == post.itemID
+      and SmartRez:GetSpendableStackCount(post.itemID, currentItemInfo.stackCount)
+      or 0
+  if spendableStackCount <= 0 then
+    line(post.itemLink or ("item:" .. tostring(post.itemID)), "post failed", "keep-in-bags reserve reached")
+    preparedPost = nil
+    return true
+  end
+
+  local postQuantity = math.min(post.quantity, spendableStackCount)
+
+  debugLine("post slot", tostring(bag), tostring(slot), "count", tostring(foundCount or (currentItemInfo and currentItemInfo.stackCount) or "?"), "spendable", tostring(spendableStackCount))
 
   pendingPost = {
     itemID = post.itemID,
     itemLink = post.itemLink,
-    quantity = post.quantity,
+    quantity = postQuantity,
     unitPrice = post.unitPrice,
     startedAt = GetTime and GetTime() or 0,
   }
@@ -438,7 +451,7 @@ local function executePreparedPost()
       C_AuctionHouse.PostCommodity,
       location,
       post.duration,
-      post.quantity,
+      postQuantity,
       post.unitPrice
     )
   else
@@ -446,7 +459,7 @@ local function executePreparedPost()
       C_AuctionHouse.PostItem,
       location,
       post.duration,
-      post.quantity,
+      postQuantity,
       nil,
       post.unitPrice
     )
@@ -470,7 +483,7 @@ local function executePreparedPost()
         AuctionHouseFrame.CommoditiesSellFrame,
         location,
         post.duration,
-        post.quantity,
+        postQuantity,
         post.unitPrice
       )
     end
@@ -480,7 +493,7 @@ local function executePreparedPost()
       "post submitted",
       post.itemLink or ("item:" .. tostring(post.itemID)),
       "qty",
-      tostring(post.quantity),
+      tostring(postQuantity),
       "unit",
       SmartRez.UI.FormatMoney(post.unitPrice)
     )
@@ -494,7 +507,7 @@ local function executePreparedPost()
         AuctionHouseFrame.CommoditiesSellFrame,
         location,
         post.duration,
-        post.quantity,
+        postQuantity,
         post.unitPrice
       )
     elseif (not post.isCommodity)
@@ -506,7 +519,7 @@ local function executePreparedPost()
         AuctionHouseFrame.ItemSellFrame,
         location,
         post.duration,
-        post.quantity,
+        postQuantity,
         nil,
         post.unitPrice
       )
@@ -516,7 +529,7 @@ local function executePreparedPost()
       "post submitted; Blizzard confirmation may be pending",
       post.itemLink or ("item:" .. tostring(post.itemID)),
       "qty",
-      tostring(post.quantity),
+      tostring(postQuantity),
       "unit",
       SmartRez.UI.FormatMoney(post.unitPrice)
     )
@@ -525,7 +538,7 @@ local function executePreparedPost()
       "post submitted",
       post.itemLink or ("item:" .. tostring(post.itemID)),
       "qty",
-      tostring(post.quantity),
+      tostring(postQuantity),
       "unit",
       SmartRez.UI.FormatMoney(post.unitPrice)
     )
@@ -865,6 +878,17 @@ function SmartRez:SetAHSellingItemConfigValue(itemID, key, value, skipRefresh)
 
   if key == "stackSize" then
     itemConfig[key] = math.max(1, math.floor(tonumber(value) or itemConfig[key] or 1))
+  elseif key == "keepInBags" then
+    itemConfig.keepInBags = math.max(0, math.floor(tonumber(value) or itemConfig.keepInBags or 0))
+    if SmartRez.MarkCraftRecipeCacheDirty then
+      SmartRez:MarkCraftRecipeCacheDirty()
+    end
+    if SmartRez.MarkCraftSalvageCacheDirty then
+      SmartRez:MarkCraftSalvageCacheDirty()
+    end
+    if SmartRez.RefreshDisenchantButton then
+      SmartRez:RefreshDisenchantButton()
+    end
   elseif key == "minPriceExpression" then
     itemConfig.minPriceExpression = SmartRez:NormalizeAHPriceExpression(value, DEFAULT_MIN_PRICE_TEXT)
   end
@@ -942,12 +966,13 @@ function SmartRez:BuildAHSellingSnapshot()
 
     local stackCount = itemInfo.stackCount or 0
     entry.count = entry.count + stackCount
+    entry.spendableCount = (entry.spendableCount or 0) + self:GetSpendableStackCount(itemID, stackCount)
     snapshot.totalAvailableQuantity = snapshot.totalAvailableQuantity + stackCount
   end)
 
   for itemID, entry in pairs(snapshot.itemsByID) do
     snapshot.availableItemTypes = snapshot.availableItemTypes + 1
-    if whitelist[itemID] and entry.count > 0 then
+    if whitelist[itemID] and (entry.spendableCount or entry.count or 0) > 0 then
       snapshot.selectedItemTypes = snapshot.selectedItemTypes + 1
     end
   end
@@ -989,7 +1014,7 @@ function SmartRez:PrintAHSellingNextAction()
 
   for _, itemID in ipairs(orderedItemIDs) do
     local entry = snapshot.itemsByID[itemID]
-    if entry and entry.count > 0 then
+    if entry and (entry.spendableCount or entry.count or 0) > 0 then
       local itemConfig = ensureItemConfig(itemID)
       local minPrice, priceError = self:GetAHSellingItemMinPrice(itemID, entry.itemLink)
       print(string.format(
@@ -1024,7 +1049,7 @@ function SmartRez:GetNextAHSellingCandidate()
     local index = ((startIndex + offset - 1) % itemCount) + 1
     local itemID = orderedItemIDs[index]
     local entry = snapshot.itemsByID[itemID]
-    if entry and entry.count > 0 then
+    if entry and (entry.spendableCount or entry.count or 0) > 0 then
       local location = ItemLocation:CreateFromBagAndSlot(entry.firstBag, entry.firstSlot)
       local itemConfig = ensureItemConfig(itemID)
       local minPrice, priceError = self:GetAHSellingItemMinPrice(itemID, entry.itemLink)
@@ -1039,7 +1064,7 @@ function SmartRez:GetNextAHSellingCandidate()
         slot = entry.firstSlot,
         itemKey = itemKey,
         stackSize = itemConfig.stackSize or 1,
-        availableCount = entry.count or 0,
+        availableCount = entry.spendableCount or entry.count or 0,
         minPrice = minPrice,
         priceError = priceError,
         isCommodity = ok and commodityStatus == Enum.ItemCommodityStatus.Commodity,

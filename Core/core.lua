@@ -18,6 +18,7 @@ SmartRez.craftRecipeActionFrames = {}
 SmartRez.craftRecipeCache = {}
 SmartRez.craftRecipeCacheDirty = true
 SmartRez.craftingItemCounts = {}
+SmartRez.playerBagItemCounts = {}
 SmartRez.viewRefreshQueued = false
 SmartRez.cachedFreeBagSlots = nil
 SmartRez.knownProfessions = {}
@@ -533,7 +534,7 @@ local function getBestRecipeCraftItemChoice(recipeConfig, reagentSlot)
 	local quantityRequired = math.max(1, tonumber(reagentSlot.quantityRequired) or 1)
 
 	for _, itemID in ipairs(candidateItemIDs) do
-		local availableCount = SmartRez:GetCraftingItemCount(itemID)
+		local availableCount = SmartRez:GetCraftingSpendableItemCount(itemID)
 		local possibleCasts = math.floor(availableCount / quantityRequired)
 		if bestItemID == nil or possibleCasts > bestPossibleCasts then
 			bestItemID = itemID
@@ -600,7 +601,7 @@ function SmartRez:BuildResolvedRecipeCraftReagents(recipeConfig)
 	for _, reagent in ipairs(recipeConfig and recipeConfig.reagents or {}) do
 		if (not reagent.slotIndex) and (reagent.itemID or reagent.currencyID) then
 			resolvedReagents[#resolvedReagents + 1] = copyTable(reagent)
-			local availableCount = reagent.itemID and self:GetCraftingItemCount(reagent.itemID) or 0
+			local availableCount = reagent.itemID and self:GetCraftingSpendableItemCount(reagent.itemID) or 0
 			local possibleCasts = math.floor(availableCount / math.max(1, tonumber(reagent.quantity) or 1))
 			if maxCrafts == nil or possibleCasts < maxCrafts then
 				maxCrafts = possibleCasts
@@ -884,12 +885,20 @@ end
 
 function SmartRez:RebuildInventoryCounts()
 	local itemCounts = {}
+	local playerBagItemCounts = {}
 	local freeSlots = 0
 
 	self:ForEachCraftingItemSourceSlot(function(bag, slot)
 		local itemInfo = _C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)
 		if itemInfo and itemInfo.itemID then
 			itemCounts[itemInfo.itemID] = (itemCounts[itemInfo.itemID] or 0) + (itemInfo.stackCount or 0)
+		end
+	end)
+
+	self:ForEachPlayerBagSlot(function(bag, slot)
+		local itemInfo = _C_GetContainerItemInfo and _C_GetContainerItemInfo(bag, slot)
+		if itemInfo and itemInfo.itemID then
+			playerBagItemCounts[itemInfo.itemID] = (playerBagItemCounts[itemInfo.itemID] or 0) + (itemInfo.stackCount or 0)
 		end
 	end)
 
@@ -909,6 +918,7 @@ function SmartRez:RebuildInventoryCounts()
 	end
 
 	self.craftingItemCounts = itemCounts
+	self.playerBagItemCounts = playerBagItemCounts
 	self.cachedFreeBagSlots = freeSlots
 end
 
@@ -1012,6 +1022,62 @@ function SmartRez:GetCraftingItemCount(itemID)
 	end
 
 	return self.craftingItemCounts[itemID] or 0
+end
+
+function SmartRez:GetPlayerBagItemCount(itemID)
+	if not itemID then
+		return 0
+	end
+
+	if self.playerBagItemCounts == nil then
+		self:RebuildInventoryCounts()
+	end
+
+	return self.playerBagItemCounts[itemID] or 0
+end
+
+function SmartRez:GetAHKeepInBagsCount(itemID)
+	itemID = tonumber(itemID)
+	if not itemID then
+		return 0
+	end
+
+	self:EnsureConfig()
+	local sniperItemConfig = self.db
+		and self.db.ahSniper
+		and self.db.ahSniper.items
+		and self.db.ahSniper.items[itemID]
+	local sellingItemConfig = self.db
+		and self.db.ahSelling
+		and self.db.ahSelling.items
+		and self.db.ahSelling.items[itemID]
+	local baitKeepCount = sniperItemConfig and sniperItemConfig.baitKeepInBags or 0
+	local sellKeepCount = sellingItemConfig and sellingItemConfig.keepInBags or 0
+	return math.max(
+		math.max(0, math.floor(tonumber(baitKeepCount) or 0)),
+		math.max(0, math.floor(tonumber(sellKeepCount) or 0))
+	)
+end
+
+function SmartRez:GetCraftingSpendableItemCount(itemID)
+	local totalCount = self:GetCraftingItemCount(itemID)
+	local reservedCount = self:GetAHKeepInBagsCount(itemID)
+	if reservedCount <= 0 then
+		return totalCount
+	end
+
+	return math.max(0, self:GetPlayerBagItemCount(itemID) - reservedCount)
+end
+
+function SmartRez:GetSpendableStackCount(itemID, stackCount)
+	stackCount = math.max(0, math.floor(tonumber(stackCount) or 0))
+	local reservedCount = self:GetAHKeepInBagsCount(itemID)
+	if reservedCount <= 0 then
+		return stackCount
+	end
+
+	local spendableCount = math.max(0, self:GetPlayerBagItemCount(itemID) - reservedCount)
+	return math.min(stackCount, spendableCount)
 end
 
 function SmartRez:GetFreeBagSlots()

@@ -23,6 +23,7 @@
 - AceGUI widgets are pooled. Any custom frame regions, textures, callbacks, or ticker closures attached to widgets must clean up on `OnRelease` or otherwise stop updating released widgets.
 - Use AceGUI status tables via shared helpers for movable window positions.
 - Bag Value's timer/rate session is display-scoped: it starts while `/sr value` or the Bag Value tab is visible and resets when all Bag Value displays close. Window position is saved, timer state is not.
+- AH Sniper and AH Selling UI own per-item keep-in-bags controls that feed shared reserve behavior in Core. Keep reserve enforcement out of UI files.
 - Improve `Annotations/acegui.lua` when AceGUI types are unclear.
 
 ## Child Documentation

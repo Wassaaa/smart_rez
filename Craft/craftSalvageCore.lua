@@ -53,7 +53,7 @@ function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
 
     for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
       if allowedItems[itemID] then
-        local itemCount = self:GetCraftingItemCount(itemID)
+        local itemCount = self:GetCraftingSpendableItemCount(itemID)
         local possibleCasts = reagentSlot.quantityRequired > 0 and _floor(itemCount / reagentSlot.quantityRequired) or 0
 
         if possibleCasts > bestPossibleCasts then
@@ -106,7 +106,8 @@ function SmartRez:RebuildCraftSalvageCache()
         local selection = professionState.selection
         local reagentPlan = professionState.reagentPlan
         local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
-        local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
+        local spendableStackCount = self:GetSpendableStackCount(itemInfo.itemID, itemInfo.stackCount)
+        local targetCasts = selection.requiredStack > 0 and _floor(spendableStackCount / selection.requiredStack) or 0
         local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or
             (hasRequiredReagents and 0 or targetCasts)
 
@@ -153,7 +154,8 @@ function SmartRez:GetBestCraftSalvageLiveTarget(professionKey)
       return
     end
 
-    local targetCasts = selection.requiredStack > 0 and _floor(itemInfo.stackCount / selection.requiredStack) or 0
+    local spendableStackCount = self:GetSpendableStackCount(itemInfo.itemID, itemInfo.stackCount)
+    local targetCasts = selection.requiredStack > 0 and _floor(spendableStackCount / selection.requiredStack) or 0
     local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or
         (hasRequiredReagents and 0 or targetCasts)
     if availableCasts <= 0 then
@@ -293,7 +295,8 @@ function SmartRez:RegisterCraftSalvageProfession(config)
         and currentTargetItemInfo.itemID == target.itemInfo.itemID
         and currentTargetItemInfo.stackCount >= selection.requiredStack
     then
-      local maxTargetCasts = _floor(currentTargetItemInfo.stackCount / selection.requiredStack)
+      local spendableStackCount = SmartRez:GetSpendableStackCount(currentTargetItemInfo.itemID, currentTargetItemInfo.stackCount)
+      local maxTargetCasts = _floor(spendableStackCount / selection.requiredStack)
 
       if goldPrinterCastLimit then
         maxTargetCasts = math.min(maxTargetCasts, goldPrinterCastLimit)

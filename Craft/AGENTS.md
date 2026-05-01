@@ -19,6 +19,7 @@
 - Use `C_TradeSkillUI.GetSalvagableItemIDs(recipeID)` for salvage candidates.
 - Use `recipeSchematic.reagentSlotSchematics[*].reagents` for per-slot reagent choices.
 - Share craft-controller primitives from `Core/craftCore.lua` where possible.
+- Recipe craft and salvage availability must respect shared AH item reserve helpers from `Core/`; do not use raw item counts for consumable reagents or salvage targets when choosing how many casts are available.
 - Treat "needs profession backend priming" as a valid state that the UI/feature can surface or resolve through the profession proxy.
 - Do not add UI construction here. UI belongs in `UI/`; user workflows belong in `Features/`.
 

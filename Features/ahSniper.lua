@@ -131,6 +131,7 @@ local function ensureItemConfig(itemID)
 	itemConfig.baitStackSize = math.max(0, math.floor(tonumber(itemConfig.baitStackSize) or DEFAULT_BAIT_STACK_SIZE))
 	itemConfig.baitPriceExpression = SmartRez:NormalizeAHPriceExpression(itemConfig.baitPriceExpression, DEFAULT_PRICE_TEXT)
 	itemConfig.baitIntervalSeconds = math.max(1, math.floor(tonumber(itemConfig.baitIntervalSeconds) or DEFAULT_BAIT_INTERVAL_SECONDS))
+	itemConfig.baitKeepInBags = math.max(0, math.floor(tonumber(itemConfig.baitKeepInBags) or 0))
 	return itemConfig
 end
 
@@ -404,6 +405,17 @@ function SmartRez:SetAHSniperItemConfigValue(itemID, key, value, skipRefresh)
 		itemConfig.baitPriceExpression = SmartRez:NormalizeAHPriceExpression(value, DEFAULT_PRICE_TEXT)
 	elseif key == "baitIntervalSeconds" then
 		itemConfig.baitIntervalSeconds = math.max(1, math.floor(tonumber(value) or itemConfig.baitIntervalSeconds or DEFAULT_BAIT_INTERVAL_SECONDS))
+	elseif key == "baitKeepInBags" then
+		itemConfig.baitKeepInBags = math.max(0, math.floor(tonumber(value) or itemConfig.baitKeepInBags or 0))
+		if SmartRez.MarkCraftRecipeCacheDirty then
+			SmartRez:MarkCraftRecipeCacheDirty()
+		end
+		if SmartRez.MarkCraftSalvageCacheDirty then
+			SmartRez:MarkCraftSalvageCacheDirty()
+		end
+		if SmartRez.RefreshDisenchantButton then
+			SmartRez:RefreshDisenchantButton()
+		end
 	end
 	if not skipRefresh then
 		refreshViews()
