@@ -1,0 +1,4 @@
+interface:
+  display_name: "AGENTS Documentation Bootstrap"
+  short_description: "Initialize documentation-first AGENTS.md contracts with same-pass update enforcement."
+  default_prompt: "Initialize a documentation-first AGENTS.md system for this project."

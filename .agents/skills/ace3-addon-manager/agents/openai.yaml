@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ace3 Addon Manager"
+  short_description: "Plan, audit, and build WoW Ace3 addons"
+  default_prompt: "Use $ace3-addon-manager to audit this WoW addon, wire the needed Ace3 libraries, and implement the right lifecycle, DB, config, UI, hooks, timers, comms, and localization patterns."
