@@ -40,16 +40,79 @@ local function isHigherBagSlotCandidate(bag, slot, existingBag, existingSlot)
   return slot > existingSlot
 end
 
-function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
+local function countSetValues(valueSet)
+  local count = 0
+
+  for _, enabled in pairs(valueSet or {}) do
+    if enabled then
+      count = count + 1
+    end
+  end
+
+  return count
+end
+
+local function appendReagentPlanDebug(debugDetails, slotDebug)
+  if not debugDetails then
+    return
+  end
+
+  debugDetails.slots = debugDetails.slots or {}
+  debugDetails.slots[#debugDetails.slots + 1] = slotDebug
+end
+
+local function debugReagentPlan(actionController, debugDetails)
+  if not debugDetails then
+    return
+  end
+
+  actionController:Debug(
+    "reagent plan",
+    "profession", debugDetails.professionKey or "nil",
+    "inputMax", debugDetails.maxCastsInput or "nil",
+    "finalMax", debugDetails.maxCasts or "nil",
+    "reason", debugDetails.failureReason or "ok"
+  )
+
+  for _, slotDebug in ipairs(debugDetails.slots or {}) do
+    actionController:Debug(
+      "reagent slot",
+      slotDebug.label or slotDebug.dataSlotIndex or "nil",
+      "required", slotDebug.quantityRequired or "nil",
+      "candidates", slotDebug.candidateCount or 0,
+      "allowed", slotDebug.allowedCount or 0,
+      "bestItem", slotDebug.bestItemID or "nil",
+      "spendable", slotDebug.bestSpendableCount or 0,
+      "casts", slotDebug.bestPossibleCasts or 0,
+      "reason", slotDebug.failureReason or "ok"
+    )
+  end
+end
+
+function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts, debugDetails)
   local selection = self:GetCraftSalvageSelection(professionKey)
   local reagentPlan = {
     reagents = {},
     maxCasts = maxCasts or _huge,
   }
 
+  if debugDetails then
+    debugDetails.professionKey = professionKey
+    debugDetails.maxCastsInput = maxCasts
+    debugDetails.slotCount = #(selection and selection.reagentSlots or {})
+  end
+
   for _, reagentSlot in ipairs(selection and selection.reagentSlots or {}) do
     local allowedItems = self:GetCraftSalvageAllowedReagentItems(professionKey, reagentSlot.dataSlotIndex)
     local bestItemID, bestPossibleCasts = nil, 0
+    local slotDebug = debugDetails and {
+      slotIndex = reagentSlot.slotIndex,
+      dataSlotIndex = reagentSlot.dataSlotIndex,
+      label = reagentSlot.label,
+      quantityRequired = reagentSlot.quantityRequired,
+      candidateCount = #(reagentSlot.allowedItemIDs or {}),
+      allowedCount = countSetValues(allowedItems),
+    } or nil
 
     for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
       if allowedItems[itemID] then
@@ -59,14 +122,40 @@ function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
         if possibleCasts > bestPossibleCasts then
           bestItemID = itemID
           bestPossibleCasts = possibleCasts
+
+          if slotDebug then
+            slotDebug.bestItemID = itemID
+            slotDebug.bestSpendableCount = itemCount
+            slotDebug.bestPossibleCasts = possibleCasts
+          end
+        elseif slotDebug and not slotDebug.bestItemID and itemCount > 0 then
+          slotDebug.bestItemID = itemID
+          slotDebug.bestSpendableCount = itemCount
+          slotDebug.bestPossibleCasts = possibleCasts
         end
       end
     end
 
     if not bestItemID or bestPossibleCasts <= 0 then
+      if slotDebug then
+        if slotDebug.candidateCount <= 0 then
+          slotDebug.failureReason = "no schematic candidates"
+        elseif slotDebug.allowedCount <= 0 then
+          slotDebug.failureReason = "all candidates filtered"
+        elseif not bestItemID then
+          slotDebug.failureReason = "no spendable allowed item"
+        else
+          slotDebug.failureReason = "insufficient spendable count"
+        end
+      end
+      appendReagentPlanDebug(debugDetails, slotDebug)
+      if debugDetails then
+        debugDetails.failureReason = slotDebug and slotDebug.failureReason or "reagent slot failed"
+      end
       return nil
     end
 
+    appendReagentPlanDebug(debugDetails, slotDebug)
     reagentPlan.maxCasts = math.min(reagentPlan.maxCasts, bestPossibleCasts)
     reagentPlan.reagents[#reagentPlan.reagents + 1] = {
       itemID = bestItemID,
@@ -80,6 +169,10 @@ function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts)
   end
 
   reagentPlan.craftingReagents = buildCraftingReagents(reagentPlan.reagents, reagentPlan.maxCasts)
+  if debugDetails then
+    debugDetails.maxCasts = reagentPlan.maxCasts
+  end
+
   return reagentPlan
 end
 
@@ -281,6 +374,12 @@ function SmartRez:RegisterCraftSalvageProfession(config)
       SmartRez:OpenCraftRecipeByID(actionController, selection.recipeID)
     end
 
+    if SmartRez.RefreshActiveCraftSalvageSelectionRecipeDetails
+        and SmartRez:RefreshActiveCraftSalvageSelectionRecipeDetails(config.key)
+    then
+      selection = SmartRez:GetCraftSalvageSelection(config.key)
+    end
+
     if SmartRez.RebuildInventoryCounts then
       SmartRez:RebuildInventoryCounts()
     end
@@ -302,7 +401,8 @@ function SmartRez:RegisterCraftSalvageProfession(config)
         maxTargetCasts = math.min(maxTargetCasts, goldPrinterCastLimit)
       end
 
-      local reagentPlan = SmartRez:BuildCraftSalvageReagentPlan(config.key, maxTargetCasts)
+      local reagentDebug = {}
+      local reagentPlan = SmartRez:BuildCraftSalvageReagentPlan(config.key, maxTargetCasts, reagentDebug)
       local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
       local casts = reagentPlan and reagentPlan.maxCasts or (hasRequiredReagents and 0 or maxTargetCasts)
 
@@ -348,8 +448,11 @@ function SmartRez:RegisterCraftSalvageProfession(config)
           "stack", currentTargetItemInfo.stackCount or "nil",
           "requiredStack", selection.requiredStack or "nil",
           "casts", casts,
+          "targetCasts", maxTargetCasts,
+          "reagentCasts", reagentPlan and reagentPlan.maxCasts or "nil",
           "goldPrinterLimit", goldPrinterCastLimit or "nil"
         )
+        debugReagentPlan(actionController, reagentDebug)
 
         lastSalvageTargetItemID = currentTargetItemInfo.itemID
         itemLocation:SetBagAndSlot(target.bag, target.slot)
@@ -366,13 +469,21 @@ function SmartRez:RegisterCraftSalvageProfession(config)
         return
       end
 
-      actionController:Debug("skip", "no salvage casts after reagent plan")
+      actionController:Debug(
+        "skip",
+        "no salvage casts after reagent plan",
+        "targetCasts", maxTargetCasts,
+        "goldPrinterLimit", goldPrinterCastLimit or "nil"
+      )
+      debugReagentPlan(actionController, reagentDebug)
     elseif selection.sortBagsWhenEmpty and (_GetTime() - lastSortTime) >= 10 then
       actionController:Debug("sorting bags", "empty target state")
       _C_SortBags()
       lastSortTime = _GetTime()
       SmartRez:MarkCraftSalvageCacheDirty()
     else
+      local reagentDebug = {}
+      SmartRez:BuildCraftSalvageReagentPlan(config.key, _huge, reagentDebug)
       actionController:Debug(
         "skip",
         "no valid salvage target",
@@ -383,6 +494,7 @@ function SmartRez:RegisterCraftSalvageProfession(config)
         "requiredStack", selection.requiredStack or "nil",
         "goldPrinterLimit", goldPrinterCastLimit or "nil"
       )
+      debugReagentPlan(actionController, reagentDebug)
     end
   end)
 

@@ -222,9 +222,10 @@ local function getResolvedRecipeDetailsByID(professionID, recipeID, fallbackLabe
   local currentState = getCurrentRecipeState(professionID, recipeID)
   local salvageTargetItemIDs = {}
   local reagentSlots = {}
+  local recipeSchematic = nil
 
   if _C_GetRecipeSchematic then
-    local recipeSchematic = _C_GetRecipeSchematic(recipeID, false)
+    recipeSchematic = _C_GetRecipeSchematic(recipeID, false)
     if recipeSchematic and recipeSchematic.name then
       label = recipeSchematic.name
     end
@@ -251,6 +252,7 @@ local function getResolvedRecipeDetailsByID(professionID, recipeID, fallbackLabe
     requiredStack = requiredStack or 1,
     salvageTargetItemIDs = salvageTargetItemIDs,
     reagentSlots = reagentSlots,
+    hasSchematic = recipeSchematic ~= nil,
   }
 end
 
@@ -581,6 +583,39 @@ function SmartRez:GetCraftSalvageSelection(professionKey)
   -- Keep DB entries empty until the user picks something custom.
   local defaultRecipe = profession.defaultRecipeKey and self:GetCraftSalvageRecipe(profession.defaultRecipeKey) or nil
   return buildSelectionFromRecipe(profession, defaultRecipe, true)
+end
+
+function SmartRez:RefreshActiveCraftSalvageSelectionRecipeDetails(professionKey)
+  local selection = self.activeCraftSalvageSelections and self.activeCraftSalvageSelections[professionKey]
+  if type(selection) ~= "table" or not selection.recipeID then
+    return false
+  end
+
+  local profession = self:GetCraftSalvageProfession(professionKey)
+  if not profession then
+    return false
+  end
+
+  local resolvedDetails = getResolvedRecipeDetailsByID(
+    profession.professionID,
+    selection.recipeID,
+    selection.label,
+    selection.requiredStack
+  )
+
+  selection.label = resolvedDetails.label or selection.label
+  selection.requiredStack = resolvedDetails.requiredStack or selection.requiredStack or 1
+
+  if type(resolvedDetails.salvageTargetItemIDs) == "table" and #resolvedDetails.salvageTargetItemIDs > 0 then
+    selection.salvageTargetItemIDs = copyTable(resolvedDetails.salvageTargetItemIDs)
+  end
+
+  if resolvedDetails.hasSchematic then
+    selection.reagentSlots = copyTable(resolvedDetails.reagentSlots or {})
+  end
+
+  self:MarkCraftSalvageCacheDirty()
+  return true
 end
 
 function SmartRez:SetCraftSalvageSelection(professionKey, selection, skipRefresh)

@@ -275,8 +275,24 @@ local function ensureGoldPrinterConfig()
 	if type(SmartRez.db.salvageWhitelists) ~= "table" then
 		SmartRez.db.salvageWhitelists = {}
 	end
-	if type(SmartRez.db.salvageWhitelists["context:goldprinter:default:step:3:salvage:enchanting"]) ~= "table" then
-		SmartRez.db.salvageWhitelists["context:goldprinter:default:step:3:salvage:enchanting"] = copyTable(DEFAULT_GOLD_PRINTER_SALVAGE_WHITELIST)
+	for contextKey, whitelist in pairs(SmartRez.db.salvageWhitelists) do
+		if type(contextKey) == "string" and contextKey:match("^context:goldprinter:") and type(whitelist) == "table" then
+			local migratedContextKey = contextKey:gsub("^context:", "", 1)
+			if type(SmartRez.db.salvageWhitelists[migratedContextKey]) ~= "table" then
+				SmartRez.db.salvageWhitelists[migratedContextKey] = copyTable(whitelist)
+			end
+		end
+	end
+	local defaultSalvageContextKey =
+		SmartRez:GetGoldPrinterRoutineStepCraftSalvageContextKey(DEFAULT_GOLD_PRINTER_ROUTINE_KEY, 3, "enchanting")
+	local legacyDefaultSalvageContextKey = "context:" .. defaultSalvageContextKey
+	if type(SmartRez.db.salvageWhitelists[defaultSalvageContextKey]) ~= "table" then
+		if type(SmartRez.db.salvageWhitelists[legacyDefaultSalvageContextKey]) == "table" then
+			SmartRez.db.salvageWhitelists[defaultSalvageContextKey] =
+				copyTable(SmartRez.db.salvageWhitelists[legacyDefaultSalvageContextKey])
+		else
+			SmartRez.db.salvageWhitelists[defaultSalvageContextKey] = copyTable(DEFAULT_GOLD_PRINTER_SALVAGE_WHITELIST)
+		end
 	end
 
 	return goldPrinterConfig

@@ -92,6 +92,7 @@ local function getRuntime()
     runtime.actionCounts = {}
     runtime.intervalBatchCounts = {}
     runtime.lastIntervalDispatch = runtime.lastIntervalDispatch or {}
+    runtime.activePriorityCraftKey = nil
   end
 
   runtime.unlockedTimedSteps = runtime.unlockedTimedSteps or {}
@@ -222,6 +223,17 @@ local function hasRecipeCraftWork(allowBlocked)
   return hasTarget, true
 end
 
+local function debugStepSkip(stepIndex, step, reason, ...)
+  debugStateChanged(
+    "stepSkip:" .. tostring(stepIndex),
+    "skip step",
+    tostring(stepIndex),
+    SmartRez:GetGoldPrinterRoutineStepLabel(step),
+    reason,
+    ...
+  )
+end
+
 local function hasCraftSalvageWork(professionKey, allowBlocked)
   local profession = SmartRez:GetCraftSalvageProfession(professionKey)
   if not profession then
@@ -237,6 +249,23 @@ local function hasCraftSalvageWork(professionKey, allowBlocked)
   local hasTarget = SmartRez:GetCraftSalvageTarget(professionKey) ~= nil
   debugStateChanged("craftSalvage", "craft salvage", tostring(professionKey), "hasTarget", tostring(hasTarget))
   return hasTarget, true
+end
+
+local function isStepCraftBlocked(step)
+  if not step then
+    return false
+  end
+
+  if step.type == "recipeCraft" then
+    return SmartRez:IsCraftRecipeActionBlocked(SmartRez:GetGoldPrinterRecipeActionKey()) == true
+  end
+
+  if step.type == "craftSalvage" then
+    local professionKey = step.selection and step.selection.professionKey or nil
+    return professionKey and SmartRez:IsCraftSalvageActionBlocked(professionKey) == true or false
+  end
+
+  return false
 end
 
 local function getPlayerBuffRemainingSeconds(spellID)
@@ -400,11 +429,13 @@ local function getStepAction(routineKey, stepIndex, step, down, allowBlockedCraf
   unlockPriorityStep(routineKey, stepIndex, step)
 
   if isStepAlreadyComplete(routineKey, stepIndex, step) then
+    debugStepSkip(stepIndex, step, "already complete", getStepCompletionMode(step))
     return nil, true
   end
 
   if step.type == "recipeCraft" then
     if not step.recipeConfig or not step.recipeConfig.recipeID then
+      debugStepSkip(stepIndex, step, "recipe unset")
       return nil, true
     end
 
@@ -418,6 +449,7 @@ local function getStepAction(routineKey, stepIndex, step, down, allowBlockedCraf
         interruptCraft = interruptCast == true,
       }
     end
+    debugStepSkip(stepIndex, step, stepComplete and "no recipe target" or "recipe blocked")
     return nil, stepComplete
   end
 
@@ -425,6 +457,7 @@ local function getStepAction(routineKey, stepIndex, step, down, allowBlockedCraf
     local selection = step.selection
     local professionKey = selection and selection.professionKey or nil
     if not professionKey then
+      debugStepSkip(stepIndex, step, "salvage profession unset")
       return nil, true
     end
 
@@ -443,11 +476,13 @@ local function getStepAction(routineKey, stepIndex, step, down, allowBlockedCraf
         interruptCraft = interruptCast == true,
       }
     end
+    debugStepSkip(stepIndex, step, stepComplete and "no salvage target" or "salvage blocked", tostring(professionKey))
     return nil, stepComplete
   end
 
   if step.type == "disenchant" then
     if SmartRez:IsDisenchantLocked() then
+      debugStepSkip(stepIndex, step, "disenchant locked")
       return nil, false
     end
 
@@ -463,9 +498,11 @@ local function getStepAction(routineKey, stepIndex, step, down, allowBlockedCraf
       return nil, false
     end
 
+    debugStepSkip(stepIndex, step, "no disenchant target")
     return nil, true
   end
 
+  debugStepSkip(stepIndex, step, "unknown step type", tostring(step and step.type))
   return nil, true
 end
 
@@ -487,8 +524,17 @@ local function chooseAction(down)
       local priorityStep = steps[priorityIndex]
       local priorityKey = getStepRuntimeKey(routine.key, priorityIndex)
       if isTimedPriorityStep(priorityStep) and getRuntime().unlockedTimedSteps[priorityKey] and isIntervalStepEligible(routine.key, priorityIndex, priorityStep) then
+        if getRuntime().activePriorityCraftKey == priorityKey and isStepCraftBlocked(priorityStep) then
+          debugStateChanged("chooseAction", "priority craft blocked", tostring(priorityIndex),
+            SmartRez:GetGoldPrinterRoutineStepLabel(priorityStep))
+          return nil
+        end
+        if getRuntime().activePriorityCraftKey == priorityKey then
+          getRuntime().activePriorityCraftKey = nil
+        end
         local priorityAction, priorityComplete = getStepAction(routine.key, priorityIndex, priorityStep, down, true, true)
         if priorityAction then
+          priorityAction.priorityKey = priorityKey
           debugStateChanged("chooseAction", "choose timed priority", tostring(priorityIndex),
             SmartRez:GetGoldPrinterRoutineStepLabel(priorityStep))
           if priorityAction.professionKey and priorityAction.castLimit then
@@ -506,8 +552,17 @@ local function chooseAction(down)
         end
       end
       if isBuffPriorityStep(priorityStep) and getRuntime().unlockedTimedSteps[priorityKey] and isBuffStepEligible(priorityStep) then
+        if getRuntime().activePriorityCraftKey == priorityKey and isStepCraftBlocked(priorityStep) then
+          debugStateChanged("chooseAction", "priority craft blocked", tostring(priorityIndex),
+            SmartRez:GetGoldPrinterRoutineStepLabel(priorityStep))
+          return nil
+        end
+        if getRuntime().activePriorityCraftKey == priorityKey then
+          getRuntime().activePriorityCraftKey = nil
+        end
         local priorityAction, priorityComplete = getStepAction(routine.key, priorityIndex, priorityStep, down, true, true)
         if priorityAction then
+          priorityAction.priorityKey = priorityKey
           debugStateChanged("chooseAction", "choose buff priority", tostring(priorityIndex),
             SmartRez:GetGoldPrinterRoutineStepLabel(priorityStep))
           if priorityAction.professionKey and priorityAction.castLimit then
@@ -581,6 +636,9 @@ dispatcher:SetScript("PreClick", function(self, _, down)
 
   pendingPostClickAdvance = action.advanceStepAfterClick == true
   SmartRez.goldPrinterAllowCraftInterrupt = action.interruptCraft == true
+  if action.priorityKey and action.interruptCraft == true then
+    getRuntime().activePriorityCraftKey = action.priorityKey
+  end
 
   debugStateChanged("dispatch", "dispatch macro", action.targetName or "custom")
   self:SetAttribute("type", "macro")
