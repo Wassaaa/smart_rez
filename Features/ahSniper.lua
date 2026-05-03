@@ -9,6 +9,8 @@ local DEFAULT_BAIT_INTERVAL_SECONDS = 30
 local DEFAULT_AUCTION_DURATION = 1
 local SCAN_TIMEOUT_SECONDS = 10
 local BULK_SCAN_TIMEOUT_SECONDS = 5
+local WARNING_REFRESH_TIMEOUT_SECONDS = 30
+local ITEM_KEY_RETRY_SECONDS = 0.2
 local PREFIX = "Smart Rez AH Snipe:"
 
 local ahSniperFrame = CreateFrame("Frame")
@@ -17,13 +19,16 @@ local pendingBait
 local bulkOpportunity
 local bulkScan
 local pendingBulkBuy
+local warningRefresh
 local lastBaitByItemID = {}
 local latestScanByItemID = {}
+local latestWarningByItemID = {}
 
 local SEARCH_EVENTS = {
 	"COMMODITY_PRICE_UPDATED",
 	"COMMODITY_PRICE_UNAVAILABLE",
 	"COMMODITY_SEARCH_RESULTS_UPDATED",
+	"ITEM_SEARCH_RESULTS_UPDATED",
 	"COMMODITY_PURCHASE_SUCCEEDED",
 	"COMMODITY_PURCHASE_FAILED",
 	"AUCTION_HOUSE_THROTTLED_SYSTEM_READY",
@@ -237,6 +242,66 @@ local function clearBulkState()
 	pendingBulkBuy = nil
 end
 
+local function priceWarningThreshold(unitPrice)
+	if _G.Auctionator
+		and Auctionator.Utilities
+		and Auctionator.Utilities.PriceWarningThreshold
+	then
+		local ok, threshold = pcall(Auctionator.Utilities.PriceWarningThreshold, unitPrice)
+		if ok and type(threshold) == "number" then
+			return threshold
+		end
+	end
+
+	if unitPrice == 0 then
+		return 0
+	end
+
+	local multiplier = 0.3 + 0.4 * math.min(1, 10000 / unitPrice)
+	return unitPrice * multiplier
+end
+
+local function calculateCommodityWarningFromResults(itemID)
+	local totalQuantity = C_AuctionHouse.GetCommoditySearchResultsQuantity
+		and C_AuctionHouse.GetCommoditySearchResultsQuantity(itemID)
+		or 0
+	local targetQuantity = math.min(5000, math.floor(totalQuantity * 0.2))
+	local runningQuantity = 0
+
+	for index = 1, C_AuctionHouse.GetNumCommoditySearchResults(itemID) do
+		local result = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, index)
+		if result then
+			runningQuantity = runningQuantity + (result.quantity or 0)
+			if runningQuantity >= targetQuantity then
+				local referencePrice = tonumber(result.unitPrice)
+				if referencePrice and referencePrice > 0 then
+					return math.floor(priceWarningThreshold(referencePrice)), referencePrice, targetQuantity, totalQuantity
+				end
+			end
+		end
+	end
+end
+
+local function clearWarningRefresh()
+	warningRefresh = nil
+	ahSniperFrame:SetScript("OnUpdate", nil)
+end
+
+local function completeWarningRefresh()
+	local completed = warningRefresh and warningRefresh.completed or 0
+	clearWarningRefresh()
+	line("Smart Rez AH Snipe:", colorText("bait warning refresh complete", "7EE787"), colorText(tostring(completed) .. " item(s)", "7D8590"))
+	if SmartRez.RefreshAHSniperConfigSurfaces then
+		SmartRez:RefreshAHSniperConfigSurfaces(true)
+	end
+end
+
+local function failWarningRefresh(reason)
+	local itemLink = warningRefresh and warningRefresh.activeItemLink or nil
+	line("Smart Rez AH Snipe:", colorText("bait warning refresh stopped", "FF7B72"), itemLink or "", colorText(reason or "failed", "FF7B72"))
+	clearWarningRefresh()
+end
+
 local function recordLatestScan(itemID, quote, maxPrice)
 	if not itemID then
 		return
@@ -338,6 +403,135 @@ local function startPendingBulkBuy()
 		maxTotal = buy.maxUnitPrice * buy.quantity,
 		bulkMode = true,
 	}, "bulk")
+end
+
+local function pumpWarningRefresh()
+	if not warningRefresh then
+		ahSniperFrame:SetScript("OnUpdate", nil)
+		return
+	end
+
+	local now = GetTime and GetTime() or 0
+	if now - (warningRefresh.startedAt or now) > WARNING_REFRESH_TIMEOUT_SECONDS then
+		failWarningRefresh("timeout")
+		return
+	end
+
+	if warningRefresh.activeItemID then
+		return
+	end
+
+	if (warningRefresh.nextAttemptAt or 0) > now then
+		return
+	end
+	warningRefresh.nextAttemptAt = now + ITEM_KEY_RETRY_SECONDS
+
+	if C_AuctionHouse.IsThrottledMessageSystemReady and not C_AuctionHouse.IsThrottledMessageSystemReady() then
+		return
+	end
+
+	local itemID = warningRefresh.queue[warningRefresh.index]
+	if not itemID then
+		completeWarningRefresh()
+		return
+	end
+
+	local itemKey = getItemKey(itemID)
+	if C_AuctionHouse.GetItemKeyInfo and itemKey and not C_AuctionHouse.GetItemKeyInfo(itemKey) then
+		return
+	end
+
+	if not itemKey then
+		latestWarningByItemID[itemID] = {
+			error = "no item key",
+			scannedAt = now,
+		}
+		warningRefresh.index = warningRefresh.index + 1
+		warningRefresh.nextAttemptAt = now
+		return
+	end
+
+	warningRefresh.activeItemID = itemID
+	warningRefresh.activeItemLink = select(2, C_Item.GetItemInfo(itemID)) or ("item:" .. tostring(itemID))
+	local ok, err = pcall(C_AuctionHouse.SendSearchQuery, itemKey, { { sortOrder = 0, reverseSort = false } }, true)
+	if not ok then
+		latestWarningByItemID[itemID] = {
+			error = tostring(err),
+			scannedAt = now,
+		}
+		warningRefresh.activeItemID = nil
+		warningRefresh.activeItemLink = nil
+		warningRefresh.index = warningRefresh.index + 1
+		warningRefresh.nextAttemptAt = now
+		return
+	end
+
+	debugLine("bait warning scan sent", warningRefresh.activeItemLink, tostring(warningRefresh.index) .. "/" .. tostring(#warningRefresh.queue))
+end
+
+local function processWarningRefreshResults(itemID)
+	if not warningRefresh or warningRefresh.activeItemID ~= itemID then
+		return
+	end
+
+	local warningPrice, referencePrice, targetQuantity, totalQuantity = calculateCommodityWarningFromResults(itemID)
+	latestWarningByItemID[itemID] = {
+		warningPrice = warningPrice,
+		referencePrice = referencePrice,
+		targetQuantity = targetQuantity,
+		totalQuantity = totalQuantity,
+		scannedAt = GetTime and GetTime() or 0,
+		error = warningPrice and nil or "no commodity results",
+	}
+	warningRefresh.completed = (warningRefresh.completed or 0) + (warningPrice and 1 or 0)
+
+	debugLine(
+		"bait warning result",
+		warningRefresh.activeItemLink or ("item:" .. tostring(itemID)),
+		"warn", warningPrice and SmartRez.UI.FormatMoney(warningPrice) or "nil",
+		"ref", referencePrice and SmartRez.UI.FormatMoney(referencePrice) or "nil",
+		"target", tostring(targetQuantity or "nil"),
+		"total", tostring(totalQuantity or "nil")
+	)
+
+	warningRefresh.activeItemID = nil
+	warningRefresh.activeItemLink = nil
+	warningRefresh.index = warningRefresh.index + 1
+	warningRefresh.nextAttemptAt = GetTime and GetTime() or 0
+
+	if SmartRez.RefreshAHSniperConfigSurfaces then
+		SmartRez:RefreshAHSniperConfigSurfaces(true)
+	end
+
+	pumpWarningRefresh()
+end
+
+local function processWarningRefreshItemResults(itemKey)
+	if not warningRefresh or not warningRefresh.activeItemID then
+		return
+	end
+
+	local itemID = warningRefresh.activeItemID
+	if type(itemKey) == "table" and itemKey.itemID and itemKey.itemID ~= itemID then
+		return
+	end
+
+	latestWarningByItemID[itemID] = {
+		error = "not commodity",
+		scannedAt = GetTime and GetTime() or 0,
+	}
+	debugLine("bait warning skipped non-commodity", warningRefresh.activeItemLink or ("item:" .. tostring(itemID)))
+
+	warningRefresh.activeItemID = nil
+	warningRefresh.activeItemLink = nil
+	warningRefresh.index = warningRefresh.index + 1
+	warningRefresh.nextAttemptAt = GetTime and GetTime() or 0
+
+	if SmartRez.RefreshAHSniperConfigSurfaces then
+		SmartRez:RefreshAHSniperConfigSurfaces(true)
+	end
+
+	pumpWarningRefresh()
 end
 
 local function tryPostBait(candidate)
@@ -579,8 +773,73 @@ function SmartRez:GetAHSniperLatestScanDisplayText(itemID)
 	return money(scan.averageUnitPrice, scan.buyable and "7EE787" or "FF7B72")
 end
 
+function SmartRez:GetAHSniperBaitWarningDisplayText(itemID)
+	local warning = latestWarningByItemID[itemID]
+	if not warning then
+		return ""
+	end
+
+	if type(warning.warningPrice) == "number" then
+		return colorText("bait warn <= ", "7D8590") .. money(warning.warningPrice, "FFD866")
+	end
+
+	if warning.error then
+		return colorText("bait warn: " .. tostring(warning.error), "FF7B72")
+	end
+
+	return ""
+end
+
+function SmartRez:RefreshAHSniperBaitWarningPrices()
+	if warningRefresh then
+		line("Smart Rez AH Snipe:", colorText("bait warning refresh already running", "FFD866"))
+		return false
+	end
+
+	if hasPendingBuyLock() or hasPendingBaitLock() or hasBulkScanLock() then
+		line("Smart Rez AH Snipe:", colorText("finish pending buy/bait/bulk work before refreshing bait warnings", "FF7B72"))
+		return false
+	end
+	if (self.HasAHSellingActiveScan and self:HasAHSellingActiveScan())
+		or (self.HasAHSellingPendingPost and self:HasAHSellingPendingPost())
+	then
+		line("Smart Rez AH Snipe:", colorText("finish pending AH selling work before refreshing bait warnings", "FF7B72"))
+		return false
+	end
+
+	local ready, reason = self:IsAHReady()
+	if not ready then
+		line("Smart Rez AH Snipe:", colorText(reason, "FF7B72"))
+		return false
+	end
+
+	local queue = {}
+	for _, itemID in ipairs(ensureAHSniperConfig().order) do
+		queue[#queue + 1] = itemID
+	end
+
+	if #queue == 0 then
+		line("Smart Rez AH Snipe:", colorText("no AH sniper items configured", "FF7B72"))
+		return false
+	end
+
+	ensureEvents()
+	warningRefresh = {
+		queue = queue,
+		index = 1,
+		completed = 0,
+		startedAt = GetTime and GetTime() or 0,
+		nextAttemptAt = 0,
+	}
+
+	line("Smart Rez AH Snipe:", colorText("refreshing bait warning prices", "79C0FF"), colorText(tostring(#queue) .. " item(s)", "7D8590"))
+	ahSniperFrame:SetScript("OnUpdate", pumpWarningRefresh)
+	pumpWarningRefresh()
+	return true
+end
+
 function SmartRez:HasAHSniperPendingAction()
-	return hasPendingBuyLock() or hasPendingBaitLock() or hasBulkScanLock()
+	return hasPendingBuyLock() or hasPendingBaitLock() or hasBulkScanLock() or warningRefresh ~= nil
 end
 
 function SmartRez:HasAHSniperConfiguredWork()
@@ -602,6 +861,10 @@ function SmartRez:RunAHSniperNextAction()
 	end
 	if hasBulkScanLock() then
 		debugLine("blocked bulk scan pending")
+		return actionResult("pending")
+	end
+	if warningRefresh then
+		debugLine("blocked bait warning refresh pending")
 		return actionResult("pending")
 	end
 
@@ -670,6 +933,9 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 		pendingBuy = nil
 	elseif eventName == "COMMODITY_SEARCH_RESULTS_UPDATED" then
 		processBulkSearchResults(...)
+		processWarningRefreshResults(...)
+	elseif eventName == "ITEM_SEARCH_RESULTS_UPDATED" then
+		processWarningRefreshItemResults(...)
 	elseif eventName == "COMMODITY_PURCHASE_SUCCEEDED" and pendingBuy then
 		actionLine(
 			pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)),
@@ -710,6 +976,8 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 	elseif (eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" or eventName == "AUCTION_HOUSE_BROWSE_FAILURE") and bulkScan then
 		debugLine("bulk scan failed", eventName)
 		clearBulkState()
+	elseif (eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" or eventName == "AUCTION_HOUSE_BROWSE_FAILURE") and warningRefresh then
+		failWarningRefresh(eventName)
 	elseif eventName == "AUCTION_HOUSE_AUCTION_CREATED" and pendingBait then
 		actionLine(
 			pendingBait.itemLink or ("item:" .. tostring(pendingBait.itemID)),
@@ -725,6 +993,7 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 		pendingBait = nil
 	elseif eventName == "AUCTION_HOUSE_THROTTLED_SYSTEM_READY" then
 		debugLine("throttle ready")
+		pumpWarningRefresh()
 	end
 end)
 

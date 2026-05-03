@@ -33,6 +33,7 @@ function TSMApi.RegisterUICallback(uiName, callbackId, callback) end
 
 ---@class _G
 ---@field TSM_API TSMApi?
+---@field Auctionator table?
 ---@field AuctionatorBuyCommodityFrame table?
 ---@field AuctionatorBuyCommodityFrameTemplateMixin table?
 ---@field AUCTIONATOR_L_BUY_NOW string?

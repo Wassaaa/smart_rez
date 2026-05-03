@@ -24,6 +24,8 @@ function SmartRez:ChatCommand(msg)
     self:ShowAHSniperWindow()
   elseif command == "buyscan" or command == "snipescan" then
     self:RunAHSniperNextAction()
+  elseif command == "buywarn" or command == "baitwarn" or command == "snipewarn" then
+    self:RefreshAHSniperBaitWarningPrices()
   elseif command == "proxyui" or proxyUiArg then
     local proxyUiValue = self:TrimText(proxyUiArg or ""):lower()
     if proxyUiValue == "" or proxyUiValue == "toggle" then
@@ -95,6 +97,6 @@ function SmartRez:ChatCommand(msg)
     self:ToggleOverrideBindingPopup()
   else
     print(
-    "Smart Rez commands: /sr, /sr value, /sr sell, /sr buy, /sr sellscan, /sr buyscan, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
+    "Smart Rez commands: /sr, /sr value, /sr sell, /sr buy, /sr sellscan, /sr buyscan, /sr buywarn, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsm mail <label>, /sr tsms <mail|ah|prof> <label>")
   end
 end

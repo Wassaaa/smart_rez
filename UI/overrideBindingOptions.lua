@@ -141,7 +141,7 @@ function SmartRez:BuildOverrideBindingOptions()
         slashhint = {
           type = "description",
           name =
-          "Slash commands: /sr, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
+          "Slash commands: /sr, /sr buy, /sr sell, /sr buywarn, /sr on, /sr off, /sr toggle, /sr pop, /sr setup, /sr proxy [profession|off], /sr proxyui on|off|toggle|reset, /sr probe on|off|toggle|state, /sr tsm <label>, /sr tsms <mail|ah|prof> <label>",
           order = 25,
           fontSize = "medium",
         },

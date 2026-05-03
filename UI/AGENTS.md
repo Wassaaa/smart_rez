@@ -24,6 +24,7 @@
 - Use AceGUI status tables via shared helpers for movable window positions.
 - Bag Value's timer/rate session is display-scoped: it starts while `/sr value` or the Bag Value tab is visible and resets when all Bag Value displays close. Window position is saved, timer state is not.
 - AH Sniper and AH Selling UI own per-item keep-in-bags controls that feed shared reserve behavior in Core. AH Selling UI also owns the unified AH Buy/Sell scheduler cadence setting. Keep reserve enforcement and scheduler execution out of UI files.
+- AH Sniper UI may display cached Auctionator-style bait warning thresholds and provide a manual refresh control, but the scan/throttle state belongs in `Features/ahSniper.lua`.
 - Gold Printer UI exposes priority settings, including generic step buff spell IDs, buff condition direction, and refresh thresholds. UI should only persist settings through `Features/goldPrinterConfig.lua`; priority execution belongs in `Features/goldPrinter.lua`.
 - Improve `Annotations/acegui.lua` when AceGUI types are unclear.
 

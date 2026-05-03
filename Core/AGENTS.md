@@ -25,6 +25,7 @@
 - AH Selling saved state includes the unified AH Buy/Sell scheduler cadence. Keep the default in `core.lua` aligned with `Features/ahSelling.lua` normalization.
 - Craft action controllers may allow a Gold Printer priority interrupt only for an active craft-in-progress lock. Do not bypass bag-space waits or passive profession/opening gates.
 - Keep slash commands thin. Route to existing feature/UI entrypoints instead of embedding feature logic.
+- `/sr buywarn` and aliases route to the AH Sniper manual bait-warning refresh; keep AH scan logic in `Features/ahSniper.lua`.
 - When adding shared state, document persistence scope and SavedVariables impact in the root doc if it changes addon-wide behavior.
 
 ## Child Documentation

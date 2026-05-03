@@ -159,6 +159,14 @@ local function renderItemConfig(parent, snapshot, itemID)
 		titleRow:AddChild(latestLabel)
 	end
 
+	local baitWarningText = SmartRez:GetAHSniperBaitWarningDisplayText(itemID)
+	if baitWarningText and baitWarningText ~= "" then
+		local baitWarningLabel = AceGUI:Create("Label")
+		baitWarningLabel:SetWidth(190)
+		baitWarningLabel:SetText(baitWarningText)
+		titleRow:AddChild(baitWarningLabel)
+	end
+
 	local buyRow = AceGUI:Create("SimpleGroup")
 	buyRow:SetFullWidth(true)
 	buyRow:SetLayout("Flow")
@@ -229,6 +237,21 @@ function UI.RenderAHSniperTab(parent)
 
 	local summary = UI.CreateCard(parent, "AH Sniper")
 	UI.AddLabel(summary, "Configure buy caps and optional timed bait posts. The AH must be open; this first pass handles commodity items.", "A5D6FF")
+
+	local warningRow = AceGUI:Create("SimpleGroup")
+	warningRow:SetFullWidth(true)
+	warningRow:SetLayout("Flow")
+	summary:AddChild(warningRow)
+
+	local refreshWarningsButton = AceGUI:Create("Button")
+	refreshWarningsButton:SetText("Refresh bait warnings")
+	refreshWarningsButton:SetWidth(180)
+	refreshWarningsButton:SetCallback("OnClick", function()
+		SmartRez:RefreshAHSniperBaitWarningPrices()
+	end)
+	warningRow:AddChild(refreshWarningsButton)
+
+	addTinyLabel(warningRow, "/sr buywarn", 92, "7D8590")
 
 	UI.RenderIconMultiPicker(parent, {
 		title = "Sniper Items",
