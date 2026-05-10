@@ -12,6 +12,46 @@ local function mutateGoldPrinterConfig(callback)
   callback()
 end
 
+local function refreshGoldPrinterConfigTab()
+  if SmartRez.CaptureAutomationConfigScrollStatus then
+    SmartRez:CaptureAutomationConfigScrollStatus()
+  end
+
+  local function refresh()
+    if SmartRez.RefreshAutomationConfigTab then
+      SmartRez:RefreshAutomationConfigTab("goldprinter", true)
+    elseif SmartRez.RefreshViews then
+      SmartRez:RefreshViews()
+    end
+  end
+
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0, refresh)
+  else
+    refresh()
+  end
+end
+
+local function addTinyLabel(group, text, width, color)
+  local label = AceGUI:Create("Label")
+  label:SetWidth(width or 48)
+  label:SetText(UI.Colorize(color or "7D8590", text))
+  group:AddChild(label)
+  return label
+end
+
+local function addCompactEdit(group, width, value, onEnter)
+  local editBox = AceGUI:Create("EditBox")
+  editBox:SetWidth(width)
+  editBox:SetText(tostring(value or ""))
+  editBox:DisableButton(true)
+  editBox:SetCallback("OnEnterPressed", function(_, _, enteredValue)
+    onEnter(enteredValue)
+  end)
+  group:AddChild(editBox)
+  return editBox
+end
+
 local function getGoldPrinterStatusText()
   local phase = SmartRez:GetGoldPrinterPhase()
   if phase == "craft" or phase == "recipeCraft" then
@@ -54,7 +94,68 @@ local function renderGoldPrinterCraftSalvageWhitelistSections(parent, routineKey
   -- While editing a Gold Printer step, we need that to point at this step's selection.
   SmartRez:ActivateGoldPrinterRoutineStepContexts(routineKey, stepIndex, step)
 
-  UI.RenderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, "Step " .. tostring(stepIndex) .. " ")
+  UI.RenderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, "Step " .. tostring(stepIndex) .. " ", {
+    onTargetWhitelistChanged = refreshGoldPrinterConfigTab,
+    onReagentWhitelistChanged = refreshGoldPrinterConfigTab,
+    renderTargetItemConfig = function(configParent)
+      local selectedSet = SmartRez:GetCraftSalvageWhitelist(profession.key, contextKey)
+      if next(selectedSet or {}) == nil then
+        return
+      end
+
+      local group = UI.CreateCard(configParent, "Step " .. tostring(stepIndex) .. " Salvage Target Minimums")
+
+      for _, itemID in ipairs(selection.salvageTargetItemIDs or {}) do
+        if selectedSet[itemID] then
+          local row = AceGUI:Create("SimpleGroup")
+          row:SetFullWidth(true)
+          row:SetLayout("Flow")
+          group:AddChild(row)
+
+          local itemLabel = AceGUI:Create("Label")
+          itemLabel:SetWidth(260)
+          itemLabel:SetText(select(1, UI.GetItemDisplay(itemID)))
+          row:AddChild(itemLabel)
+
+          addTinyLabel(row, "Min", 34, "79C0FF")
+          addCompactEdit(row, 70, SmartRez:GetGoldPrinterSalvageTargetMinimum(stepIndex, itemID), function(value)
+            SmartRez:SetGoldPrinterSalvageTargetMinimum(stepIndex, itemID, value, true)
+          end)
+          addTinyLabel(row, "kept before this step can salvage the item", 230)
+        end
+      end
+    end,
+    renderReagentItemConfig = function(configParent, reagentSlot)
+      local selectedSet = SmartRez:GetCraftSalvageReagentWhitelist(profession.key, reagentSlot.dataSlotIndex, contextKey)
+      if next(selectedSet or {}) == nil then
+        return
+      end
+
+      local group = UI.CreateCard(configParent,
+        "Step " .. tostring(stepIndex) .. " " ..
+        tostring(reagentSlot.label or ("Reagent Slot " .. tostring(reagentSlot.dataSlotIndex))) .. " Minimums")
+
+      for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
+        if selectedSet[itemID] then
+          local row = AceGUI:Create("SimpleGroup")
+          row:SetFullWidth(true)
+          row:SetLayout("Flow")
+          group:AddChild(row)
+
+          local itemLabel = AceGUI:Create("Label")
+          itemLabel:SetWidth(260)
+          itemLabel:SetText(select(1, UI.GetItemDisplay(itemID)))
+          row:AddChild(itemLabel)
+
+          addTinyLabel(row, "Min", 34, "79C0FF")
+          addCompactEdit(row, 70, SmartRez:GetGoldPrinterSalvageReagentMinimum(stepIndex, reagentSlot.dataSlotIndex, itemID), function(value)
+            SmartRez:SetGoldPrinterSalvageReagentMinimum(stepIndex, reagentSlot.dataSlotIndex, itemID, value, true)
+          end)
+          addTinyLabel(row, "kept before this step can spend the item", 220)
+        end
+      end
+    end,
+  })
 end
 
 local function getRecipeCraftCompactSlotLabel(reagentSlot, requiredIndex)

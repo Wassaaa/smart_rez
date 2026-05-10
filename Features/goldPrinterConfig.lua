@@ -215,8 +215,16 @@ local function normalizeRoutineStep(step)
 		end
 	elseif stepType == "craftSalvage" then
 		normalized.selection = copyTable(step.selection)
-		if normalized.selection and normalized.selection.requireProfessionOpen == nil then
-			normalized.selection.requireProfessionOpen = true
+		if normalized.selection then
+			if normalized.selection.requireProfessionOpen == nil then
+				normalized.selection.requireProfessionOpen = true
+			end
+			if type(normalized.selection.reagentMinimums) ~= "table" then
+				normalized.selection.reagentMinimums = {}
+			end
+			if type(normalized.selection.targetMinimums) ~= "table" then
+				normalized.selection.targetMinimums = {}
+			end
 		end
 	end
 
@@ -936,7 +944,9 @@ function SmartRez:CaptureGoldPrinterSalvageStep(stepIndex)
 		requireProfessionOpen = requireProfessionOpen,
 		requiredStack = resolvedDetails.requiredStack or 1,
 		salvageTargetItemIDs = resolvedDetails.salvageTargetItemIDs or {},
+		targetMinimums = {},
 		reagentSlots = resolvedDetails.reagentSlots or {},
+		reagentMinimums = {},
 		preferLargestStack = false,
 		sortBagsOnLoad = false,
 		sortBagsWhenEmpty = false,
@@ -955,6 +965,75 @@ function SmartRez:SetGoldPrinterSalvageRequireProfessionOpen(stepIndex, requireP
 	end
 
 	step.selection.requireProfessionOpen = requireProfessionOpen == true
+	invalidateGoldPrinterWorkAvailability()
+	self:MarkCraftSalvageCacheDirty()
+	if not skipRefresh then
+		refreshViews()
+	end
+end
+
+local function getGoldPrinterSalvageStepTargetMinimums(stepIndex)
+	local routine = SmartRez:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step or step.type ~= "craftSalvage" or type(step.selection) ~= "table" then
+		return nil
+	end
+
+	step.selection.targetMinimums = step.selection.targetMinimums or {}
+	return step.selection.targetMinimums
+end
+
+function SmartRez:GetGoldPrinterSalvageTargetMinimum(stepIndex, itemID)
+	local minimums = getGoldPrinterSalvageStepTargetMinimums(stepIndex)
+	return minimums and minimums[tonumber(itemID)] or 0
+end
+
+function SmartRez:SetGoldPrinterSalvageTargetMinimum(stepIndex, itemID, value, skipRefresh)
+	itemID = tonumber(itemID)
+	local minimums = itemID and getGoldPrinterSalvageStepTargetMinimums(stepIndex) or nil
+	if not minimums then
+		return
+	end
+
+	local minimum = math.max(0, math.floor(tonumber(value) or 0))
+	minimums[itemID] = minimum > 0 and minimum or nil
+	invalidateGoldPrinterWorkAvailability()
+	self:MarkCraftSalvageCacheDirty()
+	if not skipRefresh then
+		refreshViews()
+	end
+end
+
+local function getGoldPrinterSalvageStepReagentMinimums(stepIndex, dataSlotIndex)
+	local routine = SmartRez:GetGoldPrinterRoutine()
+	local step = routine and routine.steps[stepIndex] or nil
+	if not step or step.type ~= "craftSalvage" or type(step.selection) ~= "table" then
+		return nil
+	end
+
+	step.selection.reagentMinimums = step.selection.reagentMinimums or {}
+	local slotKey = tostring(dataSlotIndex)
+	if type(step.selection.reagentMinimums[slotKey]) ~= "table" then
+		step.selection.reagentMinimums[slotKey] = {}
+	end
+
+	return step.selection.reagentMinimums[slotKey]
+end
+
+function SmartRez:GetGoldPrinterSalvageReagentMinimum(stepIndex, dataSlotIndex, itemID)
+	local minimums = getGoldPrinterSalvageStepReagentMinimums(stepIndex, dataSlotIndex)
+	return minimums and minimums[tonumber(itemID)] or 0
+end
+
+function SmartRez:SetGoldPrinterSalvageReagentMinimum(stepIndex, dataSlotIndex, itemID, value, skipRefresh)
+	itemID = tonumber(itemID)
+	local minimums = itemID and getGoldPrinterSalvageStepReagentMinimums(stepIndex, dataSlotIndex) or nil
+	if not minimums then
+		return
+	end
+
+	local minimum = math.max(0, math.floor(tonumber(value) or 0))
+	minimums[itemID] = minimum > 0 and minimum or nil
 	invalidateGoldPrinterWorkAvailability()
 	self:MarkCraftSalvageCacheDirty()
 	if not skipRefresh then

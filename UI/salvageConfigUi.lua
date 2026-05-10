@@ -5,7 +5,8 @@ local AceGUI = LibStub("AceGUI-3.0")
 
 local UI = SmartRez.UI
 
-local function renderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, titlePrefix)
+local function renderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, titlePrefix, config)
+  config = config or {}
   if not profession or not selection then
     UI.AddLabel(parent, "This salvage section has no configured profession or selection yet.", "FFB86C")
     return
@@ -29,13 +30,23 @@ local function renderCraftSalvageWhitelistSections(parent, profession, selection
     end,
     addItemFunc = function(itemID)
       SmartRez:AddCraftSalvageWhitelistItem(profession.key, itemID, true, contextKey, selection)
+      if config.onTargetWhitelistChanged then
+        config.onTargetWhitelistChanged()
+      end
     end,
     removeItemFunc = function(itemID)
       SmartRez:RemoveCraftSalvageWhitelistItem(profession.key, itemID, true, contextKey)
+      if config.onTargetWhitelistChanged then
+        config.onTargetWhitelistChanged()
+      end
     end,
     controlHintText =
     "Click icons to choose allowed salvage targets. Leaving it empty means no salvage targets are allowed.",
   })
+
+  if config.renderTargetItemConfig then
+    config.renderTargetItemConfig(parent)
+  end
 
   for _, reagentSlot in ipairs(selection.reagentSlots or {}) do
     UI.RenderIconMultiPicker(parent, {
@@ -72,17 +83,27 @@ local function renderCraftSalvageWhitelistSections(parent, profession, selection
           contextKey,
           selection
         )
+        if config.onReagentWhitelistChanged then
+          config.onReagentWhitelistChanged()
+        end
       end,
       removeItemFunc = function(itemID)
         SmartRez:RemoveCraftSalvageReagentWhitelistItem(profession.key, reagentSlot.dataSlotIndex, itemID, true,
           contextKey)
+        if config.onReagentWhitelistChanged then
+          config.onReagentWhitelistChanged()
+        end
       end,
     })
+
+    if config.renderReagentItemConfig then
+      config.renderReagentItemConfig(parent, reagentSlot)
+    end
   end
 end
 
-function UI.RenderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, titlePrefix)
-  renderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, titlePrefix)
+function UI.RenderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, titlePrefix, config)
+  renderCraftSalvageWhitelistSections(parent, profession, selection, contextKey, titlePrefix, config)
 end
 
 ---@param parent AceGUIContainer

@@ -104,6 +104,10 @@ function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts, debugDet
 
   for _, reagentSlot in ipairs(selection and selection.reagentSlots or {}) do
     local allowedItems = self:GetCraftSalvageAllowedReagentItems(professionKey, reagentSlot.dataSlotIndex)
+    local minimums = selection
+        and selection.reagentMinimums
+        and selection.reagentMinimums[tostring(reagentSlot.dataSlotIndex)]
+        or nil
     local bestItemID, bestPossibleCasts = nil, 0
     local slotDebug = debugDetails and {
       slotIndex = reagentSlot.slotIndex,
@@ -117,7 +121,9 @@ function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts, debugDet
     for _, itemID in ipairs(reagentSlot.allowedItemIDs or {}) do
       if allowedItems[itemID] then
         local itemCount = self:GetCraftingSpendableItemCount(itemID)
-        local possibleCasts = reagentSlot.quantityRequired > 0 and _floor(itemCount / reagentSlot.quantityRequired) or 0
+        local minimumCount = minimums and math.max(0, math.floor(tonumber(minimums[itemID]) or 0)) or 0
+        local spendableCount = math.max(0, itemCount - minimumCount)
+        local possibleCasts = reagentSlot.quantityRequired > 0 and _floor(spendableCount / reagentSlot.quantityRequired) or 0
 
         if possibleCasts > bestPossibleCasts then
           bestItemID = itemID
@@ -126,11 +132,15 @@ function SmartRez:BuildCraftSalvageReagentPlan(professionKey, maxCasts, debugDet
           if slotDebug then
             slotDebug.bestItemID = itemID
             slotDebug.bestSpendableCount = itemCount
+            slotDebug.bestMinimumCount = minimumCount
+            slotDebug.bestEffectiveSpendableCount = spendableCount
             slotDebug.bestPossibleCasts = possibleCasts
           end
         elseif slotDebug and not slotDebug.bestItemID and itemCount > 0 then
           slotDebug.bestItemID = itemID
           slotDebug.bestSpendableCount = itemCount
+          slotDebug.bestMinimumCount = minimumCount
+          slotDebug.bestEffectiveSpendableCount = spendableCount
           slotDebug.bestPossibleCasts = possibleCasts
         end
       end
@@ -199,8 +209,11 @@ function SmartRez:RebuildCraftSalvageCache()
         local selection = professionState.selection
         local reagentPlan = professionState.reagentPlan
         local hasRequiredReagents = #(selection.reagentSlots or {}) > 0
+        local targetMinimums = selection.targetMinimums or {}
+        local targetMinimum = math.max(0, math.floor(tonumber(targetMinimums[itemInfo.itemID]) or 0))
         local spendableStackCount = self:GetSpendableStackCount(itemInfo.itemID, itemInfo.stackCount)
-        local targetCasts = selection.requiredStack > 0 and _floor(spendableStackCount / selection.requiredStack) or 0
+        local effectiveTargetCount = math.max(0, spendableStackCount - targetMinimum)
+        local targetCasts = selection.requiredStack > 0 and _floor(effectiveTargetCount / selection.requiredStack) or 0
         local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or
             (hasRequiredReagents and 0 or targetCasts)
 
@@ -247,8 +260,11 @@ function SmartRez:GetBestCraftSalvageLiveTarget(professionKey)
       return
     end
 
+    local targetMinimums = selection.targetMinimums or {}
+    local targetMinimum = math.max(0, math.floor(tonumber(targetMinimums[itemInfo.itemID]) or 0))
     local spendableStackCount = self:GetSpendableStackCount(itemInfo.itemID, itemInfo.stackCount)
-    local targetCasts = selection.requiredStack > 0 and _floor(spendableStackCount / selection.requiredStack) or 0
+    local effectiveTargetCount = math.max(0, spendableStackCount - targetMinimum)
+    local targetCasts = selection.requiredStack > 0 and _floor(effectiveTargetCount / selection.requiredStack) or 0
     local availableCasts = reagentPlan and math.min(targetCasts, reagentPlan.maxCasts) or
         (hasRequiredReagents and 0 or targetCasts)
     if availableCasts <= 0 then

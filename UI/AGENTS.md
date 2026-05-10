@@ -27,6 +27,7 @@
 - AH Sniper and AH Selling UI own per-item keep-in-bags controls that feed shared reserve behavior in Core. AH Selling UI also owns the unified AH Buy/Sell scheduler cadence setting. Keep reserve enforcement and scheduler execution out of UI files.
 - AH Sniper UI may display cached Auctionator-style bait warning thresholds and provide a manual refresh control, but the scan/throttle state belongs in `Features/ahSniper.lua`.
 - Gold Printer UI exposes priority settings, including generic step buff spell IDs, buff condition direction, and refresh thresholds. UI should only persist settings through `Features/goldPrinterConfig.lua`; priority execution belongs in `Features/goldPrinter.lua`.
+- Gold Printer salvage step UI may extend the reusable salvage picker with per-selected-target and per-selected-reagent minimum fields. Keep those fields step-local; the shared salvage tab should stay focused on reusable salvage selections and whitelists.
 - Improve `Annotations/acegui.lua` when AceGUI types are unclear.
 
 ## Child Documentation

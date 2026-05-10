@@ -20,6 +20,7 @@
 - Use `recipeSchematic.reagentSlotSchematics[*].reagents` for per-slot reagent choices.
 - Share craft-controller primitives from `Core/craftCore.lua` where possible.
 - Recipe craft and salvage availability must respect shared AH item reserve helpers from `Core/`; do not use raw item counts for consumable reagents or salvage targets when choosing how many casts are available.
+- Salvage planning must also respect selection-local target and reagent item minimums when present. Gold Printer uses these as per-step "keep at least this many" thresholds for selected target and reagent items.
 - Salvage reagent plans must account for every required reagent slot before dispatch. Debug logs should identify the target-cast count, final reagent-capped casts, and any failing reagent slot by candidate count, allowed count, spendable count, and failure reason.
 - Active per-feature salvage selections may be refreshed from the current recipe schematic once the user-click craft path has opened/selected the recipe, so saved step data does not silently miss newly discovered required reagent slots.
 - Salvage whitelist mutations can affect Gold Printer step availability. Keep those mutations aligned with Gold Printer work-generation invalidation so repeated empty Gold Printer presses do not reuse stale no-work results.
