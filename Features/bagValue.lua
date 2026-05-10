@@ -34,9 +34,54 @@ local function ensureBagValueConfig()
 	if type(bagValueConfig.whitelist) ~= "table" then
 		bagValueConfig.whitelist = {}
 	end
+	if type(bagValueConfig.items) ~= "table" then
+		bagValueConfig.items = {}
+	end
+	if type(bagValueConfig.order) ~= "table" then
+		bagValueConfig.order = {}
+	end
 	if type(bagValueConfig.inventorySources) ~= "table" then
 		bagValueConfig.inventorySources = {}
 	end
+
+	local normalizedWhitelist = {}
+	for itemID, selected in pairs(bagValueConfig.whitelist) do
+		if selected then
+			local numericItemID = tonumber(itemID)
+			if numericItemID then
+				normalizedWhitelist[numericItemID] = true
+			end
+		end
+	end
+	bagValueConfig.whitelist = normalizedWhitelist
+
+	local normalizedItems = {}
+	for itemID, itemConfig in pairs(bagValueConfig.items) do
+		local numericItemID = tonumber(itemID)
+		if numericItemID and type(itemConfig) == "table" then
+			normalizedItems[numericItemID] = {
+				priceSource = trim(itemConfig.priceSource),
+			}
+		end
+	end
+	bagValueConfig.items = normalizedItems
+
+	local seen = {}
+	local order = {}
+	for _, itemID in ipairs(bagValueConfig.order) do
+		local numericItemID = tonumber(itemID)
+		if numericItemID and bagValueConfig.whitelist[numericItemID] and not seen[numericItemID] then
+			seen[numericItemID] = true
+			order[#order + 1] = numericItemID
+		end
+	end
+	for itemID in pairs(bagValueConfig.whitelist) do
+		if not seen[itemID] then
+			seen[itemID] = true
+			order[#order + 1] = itemID
+		end
+	end
+	bagValueConfig.order = order
 
 	bagValueConfig.priceSource = trim(bagValueConfig.priceSource) or DEFAULT_PRICE_SOURCE
 	if bagValueConfig.onlyAuctionable == nil then
@@ -53,6 +98,44 @@ local function ensureBagValueConfig()
 	end
 
 	return bagValueConfig
+end
+
+local function addOrderedBagValueItem(config, itemID)
+	for _, orderedItemID in ipairs(config.order or {}) do
+		if orderedItemID == itemID then
+			return
+		end
+	end
+	config.order[#config.order + 1] = itemID
+end
+
+local function removeOrderedBagValueItem(config, itemID)
+	for index = #(config.order or {}), 1, -1 do
+		if config.order[index] == itemID then
+			table.remove(config.order, index)
+		end
+	end
+end
+
+local function ensureBagValueItemConfig(itemID)
+	local config = ensureBagValueConfig()
+	itemID = tonumber(itemID)
+	if not itemID then
+		return {}
+	end
+
+	if type(config.items[itemID]) ~= "table" then
+		config.items[itemID] = {}
+	end
+
+	local itemConfig = config.items[itemID]
+	itemConfig.priceSource = trim(itemConfig.priceSource)
+	return itemConfig
+end
+
+local function getBagValueItemPriceSource(config, itemID)
+	local itemConfig = config and config.items and config.items[itemID] or nil
+	return trim(itemConfig and itemConfig.priceSource) or config.priceSource
 end
 
 local function formatMoney(value)
@@ -86,7 +169,7 @@ local function getUnitPrice(expression, itemLink, itemID, cache)
 		return nil
 	end
 
-	local cacheKey = tostring(itemLink or itemID)
+	local cacheKey = tostring(expression) .. "\031" .. tostring(itemLink or itemID)
 	if cache[cacheKey] ~= nil then
 		return cache[cacheKey] or nil
 	end
@@ -172,9 +255,31 @@ function SmartRez:GetBagValuePriceSource()
 	return ensureBagValueConfig().priceSource
 end
 
-function SmartRez:SetBagValuePriceSource(priceSource)
+function SmartRez:SetBagValuePriceSource(priceSource, skipRefresh)
 	ensureBagValueConfig().priceSource = trim(priceSource) or DEFAULT_PRICE_SOURCE
-	refreshViews()
+	if not skipRefresh then
+		refreshViews()
+	end
+end
+
+function SmartRez:GetBagValueOrderedItemIDs()
+	return ensureBagValueConfig().order
+end
+
+function SmartRez:GetBagValueItemConfig(itemID)
+	return ensureBagValueItemConfig(itemID)
+end
+
+function SmartRez:GetBagValueItemPriceSourceDisplayText(itemID)
+	return ensureBagValueItemConfig(itemID).priceSource or ""
+end
+
+function SmartRez:SetBagValueItemPriceSource(itemID, priceSource, skipRefresh)
+	local itemConfig = ensureBagValueItemConfig(itemID)
+	itemConfig.priceSource = trim(priceSource)
+	if not skipRefresh then
+		refreshViews()
+	end
 end
 
 function SmartRez:GetBagValueOnlyAuctionable()
@@ -191,14 +296,19 @@ function SmartRez:AddBagValueWhitelistItem(itemID, skipRefresh)
 		return
 	end
 
-	self:GetBagValueWhitelist()[itemID] = true
+	local config = ensureBagValueConfig()
+	config.whitelist[itemID] = true
+	addOrderedBagValueItem(config, itemID)
 	if not skipRefresh then
 		refreshViews()
 	end
 end
 
 function SmartRez:RemoveBagValueWhitelistItem(itemID, skipRefresh)
-	self:GetBagValueWhitelist()[itemID] = nil
+	local config = ensureBagValueConfig()
+	config.whitelist[itemID] = nil
+	config.items[itemID] = nil
+	removeOrderedBagValueItem(config, itemID)
 	if not skipRefresh then
 		refreshViews()
 	end
@@ -273,11 +383,28 @@ function SmartRez:BuildBagValueSnapshot()
 		invalidPriceMessage = nil,
 	}
 
-	if snapshot.isTSMAvailable and TSM_API.IsCustomPriceValid then
-		local ok, isValid, err = pcall(TSM_API.IsCustomPriceValid, expression)
-		if ok and isValid == false then
-			snapshot.invalidPriceMessage = err or "Invalid TSM custom price."
+	local priceValidityCache = {}
+	local function getPriceExpressionError(priceExpression)
+		if not (snapshot.isTSMAvailable and TSM_API.IsCustomPriceValid) then
+			return nil
 		end
+
+		if priceValidityCache[priceExpression] ~= nil then
+			return priceValidityCache[priceExpression] or nil
+		end
+
+		local ok, isValid, err = pcall(TSM_API.IsCustomPriceValid, priceExpression)
+		if ok and isValid == false then
+			priceValidityCache[priceExpression] = err or "Invalid TSM custom price."
+		else
+			priceValidityCache[priceExpression] = false
+		end
+
+		return priceValidityCache[priceExpression] or nil
+	end
+
+	if snapshot.isTSMAvailable and TSM_API.IsCustomPriceValid then
+		snapshot.invalidPriceMessage = getPriceExpressionError(expression)
 	end
 
 	local seenItemIDs = {}
@@ -307,6 +434,9 @@ function SmartRez:BuildBagValueSnapshot()
 				missingPriceQuantity = 0,
 				minUnitPrice = nil,
 				maxUnitPrice = nil,
+				priceSource = getBagValueItemPriceSource(config, itemID),
+				usesDefaultPriceSource = trim(config.items[itemID] and config.items[itemID].priceSource) == nil,
+				invalidPriceMessage = nil,
 			}
 			snapshot.itemsByID[itemID] = entry
 		end
@@ -324,8 +454,13 @@ function SmartRez:BuildBagValueSnapshot()
 			snapshot.totalSelectedQuantity = snapshot.totalSelectedQuantity + stackCount
 
 			local unitPrice
-			if not snapshot.invalidPriceMessage then
-				unitPrice = getUnitPrice(expression, entry.itemLink, itemID, priceCache)
+			local itemPriceSource = getBagValueItemPriceSource(config, itemID)
+			local invalidPriceMessage = getPriceExpressionError(itemPriceSource)
+			entry.priceSource = itemPriceSource
+			entry.usesDefaultPriceSource = trim(config.items[itemID] and config.items[itemID].priceSource) == nil
+			entry.invalidPriceMessage = invalidPriceMessage
+			if not invalidPriceMessage then
+				unitPrice = getUnitPrice(itemPriceSource, entry.itemLink, itemID, priceCache)
 			end
 
 			if type(unitPrice) == "number" then

@@ -22,6 +22,7 @@
 - Recipe craft and salvage availability must respect shared AH item reserve helpers from `Core/`; do not use raw item counts for consumable reagents or salvage targets when choosing how many casts are available.
 - Salvage reagent plans must account for every required reagent slot before dispatch. Debug logs should identify the target-cast count, final reagent-capped casts, and any failing reagent slot by candidate count, allowed count, spendable count, and failure reason.
 - Active per-feature salvage selections may be refreshed from the current recipe schematic once the user-click craft path has opened/selected the recipe, so saved step data does not silently miss newly discovered required reagent slots.
+- Salvage whitelist mutations can affect Gold Printer step availability. Keep those mutations aligned with Gold Printer work-generation invalidation so repeated empty Gold Printer presses do not reuse stale no-work results.
 - Treat "needs profession backend priming" as a valid state that the UI/feature can surface or resolve through the profession proxy.
 - Do not add UI construction here. UI belongs in `UI/`; user workflows belong in `Features/`.
 

@@ -92,6 +92,7 @@ local function getRuntime()
     runtime.actionCounts = {}
     runtime.intervalBatchCounts = {}
     runtime.lastIntervalDispatch = runtime.lastIntervalDispatch or {}
+    runtime.noWorkSteps = {}
     runtime.activePriorityCraftKey = nil
   end
 
@@ -99,11 +100,35 @@ local function getRuntime()
   runtime.actionCounts = runtime.actionCounts or {}
   runtime.intervalBatchCounts = runtime.intervalBatchCounts or {}
   runtime.lastIntervalDispatch = runtime.lastIntervalDispatch or {}
+  runtime.noWorkSteps = runtime.noWorkSteps or {}
   return runtime
 end
 
 local function getStepRuntimeKey(routineKey, stepIndex)
   return tostring(routineKey) .. ":" .. tostring(stepIndex)
+end
+
+local function getStepContextToken(step)
+  local contextSubject = step and (step.recipeConfig or step.selection) or nil
+  return tostring(step and step.type or "none") .. ":" .. tostring(contextSubject)
+end
+
+local function getWorkGeneration()
+  return SmartRez.goldPrinterWorkGeneration or 0
+end
+
+local function isNoWorkCached(routineKey, stepIndex, step)
+  local entry = getRuntime().noWorkSteps[getStepRuntimeKey(routineKey, stepIndex)]
+  return entry
+    and entry.generation == getWorkGeneration()
+    and entry.contextToken == getStepContextToken(step)
+end
+
+local function markNoWorkCached(routineKey, stepIndex, step)
+  getRuntime().noWorkSteps[getStepRuntimeKey(routineKey, stepIndex)] = {
+    generation = getWorkGeneration(),
+    contextToken = getStepContextToken(step),
+  }
 end
 
 local function getStepCompletionMode(step)
@@ -136,6 +161,7 @@ local function resetCycleRuntime()
   runtime.actionCounts = {}
   runtime.intervalBatchCounts = {}
   runtime.lastIntervalDispatch = {}
+  runtime.noWorkSteps = {}
 end
 
 local function clampStepIndex()
@@ -152,18 +178,20 @@ local function clampStepIndex()
   end
 end
 
-local function resetStepIndex()
+local function resetStepIndex(skipRefresh)
   if SmartRez.goldPrinterStepIndex ~= 1 then
     debugPrint("reset step", SmartRez.goldPrinterStepIndex, "->", 1)
     SmartRez.goldPrinterStepIndex = 1
-    refreshViews()
+    if not skipRefresh then
+      refreshViews()
+    end
   end
 end
 
-local function advanceStep()
+local function advanceStep(skipRefresh)
   local steps = getRoutineSteps()
   if #steps == 0 then
-    resetStepIndex()
+    resetStepIndex(skipRefresh)
     return
   end
 
@@ -175,7 +203,9 @@ local function advanceStep()
   end
 
   debugPrint("advance step", previousStep, "->", SmartRez.goldPrinterStepIndex)
-  refreshViews()
+  if not skipRefresh then
+    refreshViews()
+  end
 end
 
 local function unlockPriorityStep(routineKey, stepIndex, step)
@@ -197,10 +227,12 @@ local function activateStepContexts(routineKey, stepIndex, step)
 end
 
 local function clearStepContexts()
-  SmartRez:ClearActiveGoldPrinterStepContexts()
-  SmartRez:MarkCraftRecipeCacheDirty()
-  SmartRez:MarkCraftSalvageCacheDirty()
-  if SmartRez.RefreshDisenchantButton then
+  local changed = SmartRez:ClearActiveGoldPrinterStepContexts()
+  if changed then
+    SmartRez:MarkCraftRecipeCacheDirty()
+    SmartRez:MarkCraftSalvageCacheDirty()
+  end
+  if changed and SmartRez.RefreshDisenchantButton then
     SmartRez:RefreshDisenchantButton()
   end
 end
@@ -577,7 +609,13 @@ local function chooseAction(down)
       end
     end
 
-    local action, stepComplete = getStepAction(routine.key, stepIndex, step, down)
+    local action, stepComplete
+    if isNoWorkCached(routine.key, stepIndex, step) and not isStepAlreadyComplete(routine.key, stepIndex, step) then
+      debugStepSkip(stepIndex, step, "cached no work")
+      stepComplete = true
+    else
+      action, stepComplete = getStepAction(routine.key, stepIndex, step, down)
+    end
     if action then
       debugStateChanged("chooseAction", "choose action", tostring(stepIndex),
         SmartRez:GetGoldPrinterRoutineStepLabel(step))
@@ -603,11 +641,12 @@ local function chooseAction(down)
       return nil
     end
 
-    advanceStep()
+    markNoWorkCached(routine.key, stepIndex, step)
+    advanceStep(true)
   end
 
   clearStepContexts()
-  resetStepIndex()
+  resetStepIndex(true)
   return nil
 end
 

@@ -19,6 +19,7 @@ SmartRez.craftRecipeCache = {}
 SmartRez.craftRecipeCacheDirty = true
 SmartRez.craftingItemCounts = {}
 SmartRez.playerBagItemCounts = {}
+SmartRez.goldPrinterWorkGeneration = SmartRez.goldPrinterWorkGeneration or 0
 SmartRez.viewRefreshQueued = false
 SmartRez.cachedFreeBagSlots = nil
 SmartRez.knownProfessions = {}
@@ -55,6 +56,8 @@ SmartRez.dbDefaults = {
 			warbank = false,
 		},
 		whitelist = {},
+		items = {},
+		order = {},
 	},
 	ahSelling = {
 		whitelist = {},
@@ -1090,6 +1093,7 @@ function SmartRez:GetFreeBagSlots()
 end
 
 function SmartRez:HandleInventoryChanged()
+	self.goldPrinterWorkGeneration = (self.goldPrinterWorkGeneration or 0) + 1
 	self:RebuildInventoryCounts()
 	self:MarkCraftSalvageCacheDirty()
 	self:MarkCraftRecipeCacheDirty()
@@ -1109,6 +1113,7 @@ function SmartRez:HandleInventoryChanged()
 end
 
 function SmartRez:HandleProfessionsChanged()
+	self.goldPrinterWorkGeneration = (self.goldPrinterWorkGeneration or 0) + 1
 	self:RefreshKnownProfessions()
 	self:MarkCraftSalvageCacheDirty()
 	self:MarkCraftRecipeCacheDirty()

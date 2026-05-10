@@ -78,6 +78,10 @@ local function refreshViews()
 	end
 end
 
+local function invalidateGoldPrinterWorkAvailability()
+	SmartRez.goldPrinterWorkGeneration = (SmartRez.goldPrinterWorkGeneration or 0) + 1
+end
+
 local function getSortedConfigs(configMap, labelKey)
 	local configs = {}
 
@@ -379,6 +383,7 @@ local function invalidateGoldPrinterStepContexts()
 	if SmartRez.ClearActiveGoldPrinterStepContexts then
 		SmartRez:ClearActiveGoldPrinterStepContexts()
 	end
+	invalidateGoldPrinterWorkAvailability()
 	if SmartRez.MarkCraftRecipeCacheDirty then
 		SmartRez:MarkCraftRecipeCacheDirty()
 	end
@@ -440,6 +445,7 @@ function SmartRez:SetDisenchantWhitelist(whitelist, contextKey)
 	if resolvedContextKey == MANUAL_DISENCHANT_CONTEXT_KEY then
 		self.db.disenchantWhitelist = ensureDisenchantWhitelistStore()[resolvedContextKey]
 	end
+	invalidateGoldPrinterWorkAvailability()
 	self:RefreshDisenchantButton()
 	refreshViews()
 end
@@ -450,6 +456,7 @@ function SmartRez:AddDisenchantWhitelistItem(itemID, skipRefresh, contextKey)
 	end
 
 	self:GetDisenchantWhitelist(contextKey)[itemID] = true
+	invalidateGoldPrinterWorkAvailability()
 	self:RefreshDisenchantButton()
 	if not skipRefresh then
 		refreshViews()
@@ -458,6 +465,7 @@ end
 
 function SmartRez:RemoveDisenchantWhitelistItem(itemID, skipRefresh, contextKey)
 	self:GetDisenchantWhitelist(contextKey)[itemID] = nil
+	invalidateGoldPrinterWorkAvailability()
 	self:RefreshDisenchantButton()
 	if not skipRefresh then
 		refreshViews()
@@ -782,6 +790,7 @@ function SmartRez:CaptureGoldPrinterRecipeStep(stepIndex)
 		outputItemID = currentState.outputItemID,
 		outputIcon = currentState.outputIcon,
 	}
+	invalidateGoldPrinterWorkAvailability()
 	self:MarkCraftRecipeCacheDirty()
 	refreshViews()
 	return true
@@ -823,6 +832,7 @@ function SmartRez:AddGoldPrinterRecipeCraftReagentWhitelistItem(stepIndex, dataS
 			step.recipeConfig.reagentChoices = step.recipeConfig.reagentChoices or {}
 			step.recipeConfig.reagentChoices[dataSlotIndex] = itemID
 			SmartRez:RefreshRecipeCraftResolvedConfig(step.recipeConfig)
+			invalidateGoldPrinterWorkAvailability()
 			SmartRez:MarkCraftRecipeCacheDirty()
 			refreshViews()
 			return
@@ -850,6 +860,7 @@ function SmartRez:SetGoldPrinterRecipeCraftReagentChoice(stepIndex, dataSlotInde
 	end
 
 	SmartRez:RefreshRecipeCraftResolvedConfig(step.recipeConfig)
+	invalidateGoldPrinterWorkAvailability()
 	SmartRez:MarkCraftRecipeCacheDirty()
 	if not skipRefresh then
 		refreshViews()
@@ -864,6 +875,7 @@ function SmartRez:SetGoldPrinterRecipeCraftRequireProfessionOpen(stepIndex, requ
 	end
 
 	step.recipeConfig.requireProfessionOpen = requireProfessionOpen == true
+	invalidateGoldPrinterWorkAvailability()
 	self:MarkCraftRecipeCacheDirty()
 	if not skipRefresh then
 		refreshViews()
@@ -882,6 +894,7 @@ function SmartRez:RemoveGoldPrinterRecipeCraftReagentWhitelistItem(stepIndex, da
 		step.recipeConfig.reagentChoices[dataSlotIndex] = nil
 	end
 	SmartRez:RefreshRecipeCraftResolvedConfig(step.recipeConfig)
+	invalidateGoldPrinterWorkAvailability()
 	SmartRez:MarkCraftRecipeCacheDirty()
 	refreshViews()
 end
@@ -929,6 +942,7 @@ function SmartRez:CaptureGoldPrinterSalvageStep(stepIndex)
 		sortBagsWhenEmpty = false,
 		isDefault = false,
 	}
+	invalidateGoldPrinterWorkAvailability()
 	refreshViews()
 	return true
 end
@@ -941,6 +955,7 @@ function SmartRez:SetGoldPrinterSalvageRequireProfessionOpen(stepIndex, requireP
 	end
 
 	step.selection.requireProfessionOpen = requireProfessionOpen == true
+	invalidateGoldPrinterWorkAvailability()
 	self:MarkCraftSalvageCacheDirty()
 	if not skipRefresh then
 		refreshViews()
@@ -1015,11 +1030,19 @@ function SmartRez:SetActiveCraftSalvageSelection(professionKey, selection)
 end
 
 function SmartRez:ClearActiveGoldPrinterStepContexts()
+	local changed = self.activeGoldPrinterStepContextToken ~= nil
+		or (self.activeDisenchantWhitelistContextKey ~= nil
+			and self.activeDisenchantWhitelistContextKey ~= MANUAL_DISENCHANT_CONTEXT_KEY)
+		or next(self.activeCraftSalvageWhitelistContextKeys or {}) ~= nil
+		or next(self.activeRecipeCraftConfigs or {}) ~= nil
+		or next(self.activeCraftSalvageSelections or {}) ~= nil
+
 	self.activeGoldPrinterStepContextToken = nil
 	self.activeDisenchantWhitelistContextKey = MANUAL_DISENCHANT_CONTEXT_KEY
 	self.activeCraftSalvageWhitelistContextKeys = {}
 	self.activeRecipeCraftConfigs = {}
 	self.activeCraftSalvageSelections = {}
+	return changed
 end
 
 function SmartRez:ActivateGoldPrinterRoutineStepContexts(routineKey, stepIndex, step)

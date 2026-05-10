@@ -212,6 +212,9 @@ end
 ---@field missingPriceQuantity number
 ---@field minUnitPrice number?
 ---@field maxUnitPrice number?
+---@field priceSource string
+---@field usesDefaultPriceSource boolean
+---@field invalidPriceMessage string?
 
 ---@class SmartRezBagValueSnapshot
 ---@field priceSource string
@@ -229,6 +232,105 @@ end
 ---@field availableItemTypes number
 ---@field missingPriceQuantity number
 ---@field invalidPriceMessage string?
+
+local function refreshBagValueConfigTab(preserveScroll)
+  if preserveScroll and SmartRez.CaptureAutomationConfigScrollStatus then
+    SmartRez:CaptureAutomationConfigScrollStatus()
+  end
+
+  local function refresh()
+    if SmartRez.RefreshAutomationConfigTab then
+      SmartRez:RefreshAutomationConfigTab("bagvalue", preserveScroll == true)
+    elseif SmartRez.RefreshViews then
+      SmartRez:RefreshViews()
+    end
+  end
+
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0, refresh)
+  else
+    refresh()
+  end
+end
+
+local function addTinyLabel(group, text, width, color)
+  local label = AceGUI:Create("Label")
+  label:SetWidth(width or 48)
+  label:SetText(UI.Colorize(color or "7D8590", text))
+  group:AddChild(label)
+  return label
+end
+
+local function addCompactEdit(group, width, value, onEnter)
+  local editBox = AceGUI:Create("EditBox")
+  editBox:SetWidth(width)
+  editBox:SetText(tostring(value or ""))
+  editBox:DisableButton(true)
+  editBox:SetCallback("OnEnterPressed", function(_, _, enteredValue)
+    onEnter(enteredValue)
+  end)
+  group:AddChild(editBox)
+  return editBox
+end
+
+local function renderBagValueItemConfig(parent, currentSnapshotRef, itemID, refreshTotals)
+  local snapshot = currentSnapshotRef()
+  local itemData = snapshot.itemsByID[itemID] or {}
+  local itemName = itemData.itemLink or UI.GetItemDisplay(itemID)
+
+  local itemGroup = AceGUI:Create("SimpleGroup")
+  itemGroup:SetFullWidth(true)
+  itemGroup:SetLayout("List")
+  parent:AddChild(itemGroup)
+
+  local titleRow = AceGUI:Create("SimpleGroup")
+  titleRow:SetFullWidth(true)
+  titleRow:SetLayout("Flow")
+  itemGroup:AddChild(titleRow)
+
+  local itemLabel = AceGUI:Create("Label")
+  itemLabel:SetWidth(310)
+  itemLabel:SetText(string.format(
+    "%s  %s",
+    itemName,
+    UI.Colorize("79C0FF", "x" .. tostring(itemData.count or 0))
+  ))
+  titleRow:AddChild(itemLabel)
+
+  local subtotalLabel = AceGUI:Create("Label")
+  subtotalLabel:SetWidth(170)
+  subtotalLabel:SetText(UI.Colorize("7EE787", UI.FormatMoney(itemData.totalValue or 0)))
+  titleRow:AddChild(subtotalLabel)
+
+  local configRow = AceGUI:Create("SimpleGroup")
+  configRow:SetFullWidth(true)
+  configRow:SetLayout("Flow")
+  itemGroup:AddChild(configRow)
+
+  addTinyLabel(configRow, "Source", 52)
+  addCompactEdit(configRow, 220, SmartRez:GetBagValueItemPriceSourceDisplayText(itemID), function(value)
+    SmartRez:SetBagValueItemPriceSource(itemID, value, true)
+    refreshTotals()
+    refreshOpenBagValuePopupValue()
+    refreshBagValueConfigTab(true)
+  end)
+
+  local resolvedSnapshot = currentSnapshotRef()
+  local resolvedItemData = resolvedSnapshot.itemsByID[itemID] or itemData
+  local sourceText = resolvedItemData.usesDefaultPriceSource
+      and ("Default: " .. tostring(resolvedSnapshot.priceSource or ""))
+      or ("Override: " .. tostring(resolvedItemData.priceSource or ""))
+  addTinyLabel(configRow, sourceText, 260, resolvedItemData.usesDefaultPriceSource and "7D8590" or "79C0FF")
+
+  if resolvedItemData.invalidPriceMessage then
+    UI.AddLabel(itemGroup, "Price error: " .. tostring(resolvedItemData.invalidPriceMessage), "FF7B72")
+  elseif (resolvedItemData.missingPriceQuantity or 0) > 0 then
+    UI.AddLabel(itemGroup, "Missing price data for " .. tostring(resolvedItemData.missingPriceQuantity) .. " item(s).",
+      "FFD866")
+  end
+
+  UI.AddSectionSpacer(itemGroup)
+end
 
 ---@param parent AceGUIContainer
 ---@param snapshotRef fun(): SmartRezBagValueSnapshot
@@ -483,6 +585,9 @@ end
 function UI.RenderBagValueTab(parent)
   local snapshot = SmartRez:BuildBagValueSnapshot()
   local currentSnapshot = snapshot
+  local function getCurrentSnapshot()
+    return currentSnapshot
+  end
   if SmartRez.RegisterAutomationConfigInventoryRefresher then
     SmartRez:RegisterAutomationConfigInventoryRefresher(function()
       currentSnapshot = SmartRez:BuildBagValueSnapshot()
@@ -505,6 +610,11 @@ function UI.RenderBagValueTab(parent)
   end, {
     showPopupButton = true,
   })
+
+  local function refreshBagValueTotals()
+    currentSnapshot = SmartRez:BuildBagValueSnapshot()
+    refreshTotalLabels()
+  end
 
   UI.RenderIconMultiPicker(parent, {
     title = "Tracked Auction Items",
@@ -558,12 +668,14 @@ function UI.RenderBagValueTab(parent)
       currentSnapshot = SmartRez:BuildBagValueSnapshot()
       refreshTotalLabels()
       refreshOpenBagValuePopupValue()
+      refreshBagValueConfigTab(true)
     end,
     removeItemFunc = function(itemID)
       SmartRez:RemoveBagValueWhitelistItem(itemID, true)
       currentSnapshot = SmartRez:BuildBagValueSnapshot()
       refreshTotalLabels()
       refreshOpenBagValuePopupValue()
+      refreshBagValueConfigTab(true)
     end,
     emptySelectionText = "No tracked items selected yet. Click icons to start building the total.",
     selectedStatusTextPrefix = "Tracking ",
@@ -572,4 +684,10 @@ function UI.RenderBagValueTab(parent)
     "Click icons to choose which item types count toward the total. Leaving it empty means the total stays at zero.",
     emptyText = "No visible items matched the current source and auctionability filters.",
   })
+
+  for _, itemID in ipairs(SmartRez:GetBagValueOrderedItemIDs()) do
+    if SmartRez:GetBagValueWhitelist()[itemID] then
+      renderBagValueItemConfig(parent, getCurrentSnapshot, itemID, refreshBagValueTotals)
+    end
+  end
 end

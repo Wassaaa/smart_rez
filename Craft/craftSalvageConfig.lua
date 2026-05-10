@@ -419,6 +419,7 @@ function SmartRez:AddCraftSalvageWhitelistItemForSelection(professionKey, select
 
   local whitelist = self:GetCraftSalvageWhitelist(professionKey, contextKey)
   whitelist[itemID] = true
+  self.goldPrinterWorkGeneration = (self.goldPrinterWorkGeneration or 0) + 1
   self:MarkCraftSalvageCacheDirty()
 
   if not skipRefresh then
@@ -462,6 +463,7 @@ function SmartRez:AddCraftSalvageReagentWhitelistItemForSelection(professionKey,
 
   local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey)
   whitelist[itemID] = true
+  self.goldPrinterWorkGeneration = (self.goldPrinterWorkGeneration or 0) + 1
   self:MarkCraftSalvageCacheDirty()
 
   if not skipRefresh then
@@ -484,6 +486,7 @@ end
 function SmartRez:RemoveCraftSalvageWhitelistItem(professionKey, itemID, skipRefresh, contextKey)
   local whitelist = self:GetCraftSalvageWhitelist(professionKey, contextKey)
   whitelist[itemID] = nil
+  self.goldPrinterWorkGeneration = (self.goldPrinterWorkGeneration or 0) + 1
   self:MarkCraftSalvageCacheDirty()
   if not skipRefresh then
     self:RefreshViews()
@@ -493,6 +496,7 @@ end
 function SmartRez:RemoveCraftSalvageReagentWhitelistItem(professionKey, dataSlotIndex, itemID, skipRefresh, contextKey)
   local whitelist = self:GetCraftSalvageReagentWhitelist(professionKey, dataSlotIndex, contextKey)
   whitelist[itemID] = nil
+  self.goldPrinterWorkGeneration = (self.goldPrinterWorkGeneration or 0) + 1
   self:MarkCraftSalvageCacheDirty()
   if not skipRefresh then
     self:RefreshViews()

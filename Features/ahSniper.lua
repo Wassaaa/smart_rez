@@ -20,6 +20,8 @@ local bulkOpportunity
 local bulkScan
 local pendingBulkBuy
 local warningRefresh
+local sellCadenceCredits = 0
+local forceNextNormalBuyNoBait = false
 local lastBaitByItemID = {}
 local latestScanByItemID = {}
 local latestWarningByItemID = {}
@@ -89,6 +91,11 @@ local function actionResult(status, consumedThrottle)
 		status = status,
 		consumedThrottle = consumedThrottle == true,
 	}
+end
+
+local function grantSellCadenceCredit(reason)
+	sellCadenceCredits = sellCadenceCredits + 1
+	debugLine("sell cadence credit", reason or "sniper", tostring(sellCadenceCredits))
 end
 
 local function ensureAHSniperConfig()
@@ -342,6 +349,9 @@ local function startBuyRequest(buy, source)
 	if not ok then
 		actionLine(buy.itemLink or ("item:" .. tostring(buy.itemID)), "FF7B72", "buy failed", tostring(err))
 		pendingBuy = nil
+		if not buy.bulkMode then
+			grantSellCadenceCredit("start failed")
+		end
 		return actionResult("failed")
 	end
 
@@ -594,6 +604,9 @@ local function processBuyPriceUpdated(unitPrice, totalPrice)
 			debugLine("buy confirmed", pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "x" .. tostring(pendingBuy.quantity), SmartRez.UI.FormatMoney(averageUnitPrice or unitPrice or 0))
 		else
 			actionLine(pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "FF7B72", "buy failed", tostring(err))
+			if not pendingBuy.bulkMode then
+				grantSellCadenceCredit("confirm failed")
+			end
 			pendingBuy = nil
 		end
 	else
@@ -605,6 +618,9 @@ local function processBuyPriceUpdated(unitPrice, totalPrice)
 				.. colorText("  >  ", "7D8590")
 				.. capText(pendingBuy.maxUnitPrice)
 		)
+		if not pendingBuy.bulkMode then
+			grantSellCadenceCredit("too high")
+		end
 		pendingBuy = nil
 	end
 end
@@ -850,6 +866,16 @@ function SmartRez:HasAHSniperBulkOpportunity()
 	return pendingBulkBuy ~= nil or bulkOpportunity ~= nil
 end
 
+function SmartRez:HasAHSniperBuyFirstFollowUp()
+	return forceNextNormalBuyNoBait == true
+end
+
+function SmartRez:ConsumeAHSniperSellCadenceCredits()
+	local credits = sellCadenceCredits
+	sellCadenceCredits = 0
+	return credits
+end
+
 function SmartRez:RunAHSniperNextAction()
 	if hasPendingBuyLock() then
 		debugLine("blocked purchase pending")
@@ -890,7 +916,8 @@ function SmartRez:RunAHSniperNextAction()
 		return actionResult("noWork")
 	end
 
-	local baitResult = candidate.baitPrice and tryPostBait(candidate) or nil
+	local skipBait = forceNextNormalBuyNoBait == true
+	local baitResult = (not skipBait) and candidate.baitPrice and tryPostBait(candidate) or nil
 	if baitResult then
 		return baitResult
 	end
@@ -900,6 +927,7 @@ function SmartRez:RunAHSniperNextAction()
 		return actionResult("blocked")
 	end
 
+	forceNextNormalBuyNoBait = false
 	return startBuyRequest(buildBuyRequest(candidate), "direct")
 end
 
@@ -928,6 +956,8 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 			actionLine(pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "FF7B72", "price unavailable")
 			if pendingBuy.bulkMode then
 				clearBulkState()
+			else
+				grantSellCadenceCredit("price unavailable")
 			end
 		end
 		pendingBuy = nil
@@ -963,6 +993,7 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 					maxUnitPrice = maxUnitPrice,
 					configuredStackSize = pendingBuy.quantity,
 				}
+				forceNextNormalBuyNoBait = true
 				debugLine("bulk opportunity", pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "cap", SmartRez.UI.FormatMoney(maxUnitPrice))
 			end
 		end
@@ -971,6 +1002,8 @@ ahSniperFrame:SetScript("OnEvent", function(_, eventName, ...)
 		actionLine(pendingBuy.itemLink or ("item:" .. tostring(pendingBuy.itemID)), "FF7B72", "buy failed")
 		if pendingBuy.bulkMode then
 			clearBulkState()
+		else
+			grantSellCadenceCredit("purchase failed")
 		end
 		pendingBuy = nil
 	elseif (eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" or eventName == "AUCTION_HOUSE_BROWSE_FAILURE") and bulkScan then

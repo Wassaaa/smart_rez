@@ -46,6 +46,10 @@ local function hasSniperBulkOpportunity()
   return SmartRez.HasAHSniperBulkOpportunity and SmartRez:HasAHSniperBulkOpportunity()
 end
 
+local function hasSniperBuyFirstFollowUp()
+  return SmartRez.HasAHSniperBuyFirstFollowUp and SmartRez:HasAHSniperBuyFirstFollowUp()
+end
+
 local function hasSellingWork()
   return SmartRez.HasAHSellingConfiguredWork and SmartRez:HasAHSellingConfiguredWork()
 end
@@ -66,8 +70,19 @@ local function runSniper()
   return SmartRez:RunAHSniperNextAction()
 end
 
+local function consumeSniperSellCadenceCredits()
+  if not SmartRez.ConsumeAHSniperSellCadenceCredits then
+    return
+  end
+
+  local credits = math.max(0, math.floor(tonumber(SmartRez:ConsumeAHSniperSellCadenceCredits()) or 0))
+  if credits > 0 then
+    buyActionsSinceSell = buyActionsSinceSell + credits
+  end
+end
+
 local function recordSniperResult(result)
-  if result and result.consumedThrottle and (result.status == "startedBuy" or result.status == "postedBait") then
+  if result and result.consumedThrottle and result.status == "postedBait" then
     buyActionsSinceSell = buyActionsSinceSell + 1
   end
 end
@@ -88,7 +103,15 @@ function SmartRez:RunAHBuySellNextAction()
     return
   end
 
+  consumeSniperSellCadenceCredits()
+
   if hasSniperBulkOpportunity() then
+    local sniperResult = runSniper()
+    recordSniperResult(sniperResult)
+    return sniperResult
+  end
+
+  if hasSniperBuyFirstFollowUp() and hasSniperWork() then
     local sniperResult = runSniper()
     recordSniperResult(sniperResult)
     return sniperResult
