@@ -356,7 +356,6 @@ local function getPostQuantity(scan, lowestIsPlayer, frontQuantity)
   local targetQuantity = math.max(1, math.floor(tonumber(scan.stackSize) or DEFAULT_STACK_SIZE))
   local availableCount = math.max(0, math.floor(tonumber(scan.availableCount) or targetQuantity))
   local alreadyPosted = lowestIsPlayer and math.max(0, math.floor(tonumber(frontQuantity) or 0)) or 0
-  local neededQuantity = math.max(0, targetQuantity - alreadyPosted)
   local availablePostCount = availableCount
 
   if C_AuctionHouse and C_AuctionHouse.GetAvailablePostCount then
@@ -366,6 +365,11 @@ local function getPostQuantity(scan, lowestIsPlayer, frontQuantity)
     end
   end
 
+  if availablePostCount > 0 and availablePostCount < targetQuantity then
+    return availablePostCount, alreadyPosted, targetQuantity, availablePostCount
+  end
+
+  local neededQuantity = math.max(0, targetQuantity - alreadyPosted)
   return math.min(neededQuantity, availablePostCount), alreadyPosted, targetQuantity, availablePostCount
 end
 
